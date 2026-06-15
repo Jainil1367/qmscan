@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QMScan — ICT Fibonacci Watchlist</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">QM<span class="logo-dot">•</span>SCAN</div>
+    <div class="header-sub">ICT Fibonacci Watchlist / QM Pattern Scanner</div>
+  </div>
+  <div class="header-center">
+    <div class="tf-tabs" id="tf-tabs">
+      <button class="tf-tab active" data-tf="15m">15 Min</button>
+      <button class="tf-tab" data-tf="1H">1 Hour</button>
+      <button class="tf-tab" data-tf="1D">Daily</button>
+      <button class="tf-tab" data-tf="1W">Weekly</button>
+      <button class="tf-tab master-tab" data-tf="master">Master</button>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="ws-status" id="ws-status">
+      <span class="ws-dot"></span><span id="ws-label">Connecting...</span>
+    </div>
+    <button class="hdr-btn" id="btn-alerts" onclick="App.openPanel('alerts')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Alerts <span class="alert-badge" id="alert-count" style="display:none">0</span>
+    </button>
+    <button class="hdr-btn" onclick="App.openPanel('tradelog')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Trade Log
+    </button>
+    <button class="hdr-btn" onclick="App.rescan()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Rescan
+    </button>
+  </div>
+</header>
+
+<!-- ── Stats Bar ──────────────────────────────────────────────────────────── -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <span class="stat-label">In Setup</span>
+    <span class="stat-val" id="stat-total">0</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Scans Done</span>
+    <span class="stat-val" id="stat-scans">0</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Best R/R</span>
+    <span class="stat-val" id="stat-bestrr">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">HTF Confluent</span>
+    <span class="stat-val" id="stat-htf">0</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Last Scan</span>
+    <span class="stat-val" id="stat-lastscan">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Next Scan</span>
+    <span class="stat-val" id="stat-next">60s</span>
+  </div>
+  <div class="setup-legend">
+    <span class="sl s1">① Impulsive ~38.2%</span>
+    <span class="sl s2">② Typical 50–61.8%</span>
+    <span class="sl s3">③ Golden Zone ~78.6%</span>
+    <span class="sl s4">④ Deep ~88.6%</span>
+  </div>
+</div>
+
+<!-- ── Filter Bar ─────────────────────────────────────────────────────────── -->
+<div class="filter-bar">
+  <input type="text" class="filter-input" id="filter-input" placeholder="Filter ticker, sector, setup..." oninput="App.filter()">
+  <div class="sort-group">
+    <span class="sort-label">Sort:</span>
+    <button class="sort-btn active" data-sort="rr" onclick="App.sort('rr',this)">R/R</button>
+    <button class="sort-btn" data-sort="setup" onclick="App.sort('setup',this)">Setup</button>
+    <button class="sort-btn" data-sort="fib" onclick="App.sort('fib',this)">Fib%</button>
+    <button class="sort-btn" data-sort="htf" onclick="App.sort('htf',this)">HTF</button>
+  </div>
+  <label class="toggle-wrap">
+    <input type="checkbox" id="htf-only" onchange="App.filter()"> HTF only
+  </label>
+  <label class="toggle-wrap">
+    <input type="checkbox" id="ob-only" onchange="App.filter()"> OB only
+  </label>
+</div>
+
+<!-- ── Main Watchlist Grid ────────────────────────────────────────────────── -->
+<main class="main" id="watchlist-grid">
+  <div class="empty-state" id="empty-state">
+    <div class="empty-icon">⟳</div>
+    <div class="empty-title">Waiting for scanner...</div>
+    <div class="empty-sub">Ensure your API keys are set in .env and the server is running.</div>
+  </div>
+</main>
+
+<!-- ── Chart Modal ────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="chart-modal" onclick="Modals.closeChart(event)">
+  <div class="modal-box chart-modal-box">
+    <div class="modal-header">
+      <div>
+        <span class="modal-ticker" id="modal-ticker">—</span>
+        <span class="modal-badge" id="modal-setup-badge"></span>
+        <span class="modal-tf" id="modal-tf"></span>
+      </div>
+      <button class="modal-close" onclick="Modals.closeChartDirect()">X</button>
+    </div>
+    <div class="chart-container" id="chart-container"></div>
+    <div class="chart-legend" id="chart-legend"></div>
+    <div class="modal-meta" id="modal-meta"></div>
+    <div class="modal-actions">
+      <button class="action-btn green" id="btn-add-trade">+ Add to Trade Log</button>
+      <button class="action-btn gray" onclick="Modals.closeChartDirect()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Alerts Panel ───────────────────────────────────────────────────────── -->
+<div class="panel-overlay" id="alerts-panel">
+  <div class="panel-box">
+    <div class="panel-header">
+      <span>Alert History</span>
+      <button class="modal-close" onclick="App.closePanel('alerts')">X</button>
+    </div>
+    <div class="panel-body" id="alerts-body">
+      <div class="empty-state-sm">No alerts yet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Trade Log Panel ────────────────────────────────────────────────────── -->
+<div class="panel-overlay" id="tradelog-panel">
+  <div class="panel-box wide">
+    <div class="panel-header">
+      <span>Trade Log</span>
+      <button class="modal-close" onclick="App.closePanel('tradelog')">X</button>
+    </div>
+    <div class="trade-stats-row" id="trade-stats-row">
+      <div class="ts-card"><div class="ts-label">Total</div><div class="ts-val" id="ts-total">0</div></div>
+      <div class="ts-card"><div class="ts-label">Win Rate</div><div class="ts-val green" id="ts-winrate">0%</div></div>
+      <div class="ts-card"><div class="ts-label">Total P&L</div><div class="ts-val" id="ts-pnl">$0</div></div>
+      <div class="ts-card"><div class="ts-label">Total R</div><div class="ts-val" id="ts-r">0R</div></div>
+      <div class="ts-card"><div class="ts-label">Expectancy</div><div class="ts-val" id="ts-exp">0R</div></div>
+    </div>
+    <div class="panel-body" id="tradelog-body">
+      <div class="empty-state-sm">No trades logged yet. Click + Add to Trade Log on any setup.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Trade Modal ────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="addtrade-modal" onclick="Modals.closeAddTrade(event)">
+  <div class="modal-box addtrade-box">
+    <div class="modal-header">
+      <span>Add Trade — <span id="at-ticker">—</span></span>
+      <button class="modal-close" onclick="Modals.closeAddTrade(null,true)">X</button>
+    </div>
+    <div class="at-form">
+      <div class="at-row">
+        <label>Account Size ($)</label>
+        <input type="number" id="at-account" value="10000" min="100">
+      </div>
+      <div class="at-row">
+        <label>Risk % per trade</label>
+        <input type="number" id="at-risk" value="1" min="0.1" max="5" step="0.1">
+      </div>
+      <div class="at-row">
+        <label>Notes</label>
+        <input type="text" id="at-notes" placeholder="Optional notes...">
+      </div>
+      <div class="at-summary" id="at-summary"></div>
+      <button class="action-btn green full" id="at-confirm">Confirm Trade Entry</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/watchlist.js"></script>
+<script src="/static/js/tradelog.js"></script>
+</body>
+</html>

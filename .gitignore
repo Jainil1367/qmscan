@@ -1,0 +1,22 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Env / secrets
+.env
+
+# Logs & local data
+logs/
+trades/*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

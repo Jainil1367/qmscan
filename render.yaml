@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: qmscan
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: "pip install -r requirements-deploy.txt"
+    startCommand: "python run.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.4"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "60"
+      - key: UNIVERSE_SIZE
+        value: "51"
+      - key: ENABLE_SOUND_ALERTS
+        value: "false"
+      - key: ENABLE_PUSH_ALERTS
+        value: "false"
+    healthCheckPath: /
+    autoDeploy: true
