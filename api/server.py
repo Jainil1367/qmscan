@@ -182,6 +182,20 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         ok = await trade_store.cancel_trade(trade_id)
         return {"cancelled": ok}
 
+    # ── Setup History ─────────────────────────────────────────────────────────
+    @app.get("/api/history")
+    async def get_history(
+        ticker: str = None,
+        timeframe: str = None,
+        setup_id: int = None,
+        limit: int = 200,
+    ):
+        rows = await trade_store.get_history(
+            ticker=ticker, timeframe=timeframe,
+            setup_id=setup_id, limit=limit,
+        )
+        return {"history": rows, "count": len(rows)}
+
     # ── Status ────────────────────────────────────────────────────────────────
     @app.get("/api/status")
     async def status():
@@ -221,3 +235,4 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.active.remove(ws)
+

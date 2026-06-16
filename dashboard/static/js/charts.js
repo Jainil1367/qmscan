@@ -1,213 +1,235 @@
 /**
- * charts.js — TradingView Lightweight Charts v4 integration
+ * charts.js — TradingView Lightweight Charts v4
  *
- * Draws 8 key levels for every setup:
- *   1. HH        — swing high (CHoCH structure high)
- *   2. CHoCH     — broken structure level
- *   3. HTF LQ    — higher-timeframe liquidity level
- *   4. Key Level — higher-timeframe key level
- *   5. Fib Entry — entry price (fib-based)
- *   6. Fib SL    — stop loss price (fib-based)
- *   7. HH1       — prior swing high before current HH
- *   8. Stop Hunt — stop-hunt level below swing low
+ * Mini cards:  candlesticks + volume + time axis + ALL 8 structure lines
+ * Modal chart: same + CHoCH arrow marker + live candle ticks + legend
+ *
+ * 8 price levels drawn:
+ *   HH · CHoCH · HTF LQ · KEY LVL · FIB ENTRY · FIB SL · HH1 · STOP HUNT
+ * + always: ENTRY · SL · TARGET
  */
 
 const Charts = (() => {
-  const CHART_BG   = '#0D1219';
-  const GRID_COLOR = 'rgba(255,255,255,0.04)';
-  const TEXT_COLOR = '#6E7F99';
-  const UP_COLOR   = '#00D68F';
-  const DOWN_COLOR = '#FF4560';
+  const CHART_BG    = '#0D1219';
+  const GRID_COLOR  = 'rgba(255,255,255,0.05)';
+  const TEXT_COLOR  = '#D0D8E8';   // was #6E7F99 — now readable white/silver
+  const UP_COLOR    = '#00D68F';
+  const DOWN_COLOR  = '#FF4560';
+  const VOL_UP      = 'rgba(0,214,143,0.25)';
+  const VOL_DOWN    = 'rgba(255,69,96,0.25)';
 
-  const miniCharts = {};
-  let modalChart = null;
-  let modalSeries = null;
-  let liveTickInterval = null;
+  const miniCharts = {};   // containerId → { chart, candleSeries, volSeries, ro }
+  let   modalChart      = null;
+  let   modalCandle     = null;
+  let   modalVolSeries  = null;
+  let   liveTickTimer   = null;
+  let   _lastLivePrice  = 0;
 
-  // ── Convert candles to LWC format, deduplicate timestamps ──────────────
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
   function candles2lwc(candles) {
     const seen = new Set();
-    const result = [];
+    const out  = [];
     for (const c of candles) {
       const t = Math.floor(new Date(c.t).getTime() / 1000);
       if (seen.has(t)) continue;
       seen.add(t);
-      result.push({ time: t, open: c.o, high: c.h, low: c.l, close: c.c });
+      out.push({ time: t, open: c.o, high: c.h, low: c.l, close: c.c });
     }
-    return result.sort((a, b) => a.time - b.time);
+    return out.sort((a, b) => a.time - b.time);
   }
 
-  function isFiniteNum(v) {
-    return typeof v === 'number' && isFinite(v);
+  function candles2vol(candles) {
+    const seen = new Set();
+    const out  = [];
+    for (const c of candles) {
+      const t = Math.floor(new Date(c.t).getTime() / 1000);
+      if (seen.has(t)) continue;
+      seen.add(t);
+      out.push({ time: t, value: c.v || 0, color: c.c >= c.o ? VOL_UP : VOL_DOWN });
+    }
+    return out.sort((a, b) => a.time - b.time);
   }
 
-  // ── Unified level lines (Entry / SL / Target + structure levels) ────────
-  // `detail` = true draws the full set of 8 structure/fib levels (modal),
-  // `detail` = false draws only Entry/SL/Target (mini cards — keeps them readable).
+  function ok(v) { return typeof v === 'number' && isFinite(v) && v > 0; }
+
+  // ── Price lines — all 8 structure levels + entry/SL/target ─────────────────
+  // detail=false → mini (still draws all 8, just thinner)
+  // detail=true  → modal (thicker core lines)
+
   function addSetupLines(series, setup, detail = false) {
-    if (!series || !setup) return;
+    if (!series || !setup) return [];
+    const thin = detail ? 1 : 1;
+    const core = detail ? 2 : 1;
 
-    const lines = [];
+    const swingHigh = setup.choch?.swing_high?.price;
+    const swingLow  = setup.choch?.swing_low?.price;
+    const broken    = setup.choch?.broken_level;
 
-    // Core trade levels — always shown
-    lines.push({ price: setup.entry,     color: '#00D68F', lineWidth: 2, lineStyle: 0, title: 'ENTRY'  });
-    lines.push({ price: setup.stop_loss, color: '#FF4560', lineWidth: 2, lineStyle: 1, title: 'SL'     });
-    lines.push({ price: setup.target,    color: '#60A5FA', lineWidth: 2, lineStyle: 2, title: 'TARGET' });
-
-    if (detail) {
-      const swingHigh = setup.choch?.swing_high?.price;
-      const swingLow  = setup.choch?.swing_low?.price;
-      const broken    = setup.choch?.broken_level;
-
-      // 1. HH — swing high
-      if (isFiniteNum(swingHigh)) {
-        lines.push({ price: swingHigh, color: '#E2E8F0', lineWidth: 1, lineStyle: 0, title: 'HH' });
-      }
-
-      // 2. CHoCH — broken structure level
-      if (isFiniteNum(broken)) {
-        lines.push({ price: broken, color: '#A855F7', lineWidth: 1, lineStyle: 1, title: 'CHoCH' });
-      }
-
-      // 3. HTF LQ — higher-timeframe liquidity
-      if (isFiniteNum(setup.htf_lq) && setup.htf_lq > 0) {
-        lines.push({ price: setup.htf_lq, color: '#F472B6', lineWidth: 1, lineStyle: 2, title: 'HTF LQ' });
-      }
-
-      // 4. Key Level — higher-timeframe key level
-      if (isFiniteNum(setup.htf_key_level) && setup.htf_key_level > 0) {
-        lines.push({ price: setup.htf_key_level, color: '#FACC15', lineWidth: 1, lineStyle: 2, title: 'KEY LVL' });
-      }
-
-      // 7. HH1 — prior swing high before current HH
-      if (isFiniteNum(setup.hh1) && setup.hh1 > 0) {
-        lines.push({ price: setup.hh1, color: '#94A3B8', lineWidth: 1, lineStyle: 3, title: 'HH1' });
-      }
-
-      // 8. Stop Hunt level — below swing low
-      if (isFiniteNum(setup.stop_hunt_level) && setup.stop_hunt_level > 0) {
-        lines.push({ price: setup.stop_hunt_level, color: '#FF8A65', lineWidth: 1, lineStyle: 3, title: 'STOP HUNT' });
-      }
-
-      // 5 & 6. Fib Entry / Fib SL — explicit fib-based labels (same prices as
-      // ENTRY/SL above but labeled separately so both the trade levels and
-      // the fib context are visible)
-      if (isFiniteNum(swingHigh) && isFiniteNum(swingLow)) {
-        lines.push({ price: setup.entry,     color: '#34D399', lineWidth: 1, lineStyle: 2, title: `FIB ${setup.fib_entry_pct}%` });
-        lines.push({ price: setup.stop_loss, color: '#FB7185', lineWidth: 1, lineStyle: 2, title: 'FIB SL' });
-      }
-    }
+    const lines = [
+      // Core trade levels
+      { price: setup.entry,     color: '#00D68F', w: core, style: 0, title: 'ENTRY'     },
+      { price: setup.stop_loss, color: '#FF4560', w: core, style: 1, title: 'SL'        },
+      { price: setup.target,    color: '#60A5FA', w: core, style: 2, title: 'TARGET'    },
+      // Structure
+      ok(swingHigh) && { price: swingHigh,            color: '#F0F4FF', w: thin, style: 0, title: 'HH'        },
+      ok(broken)    && { price: broken,                color: '#A855F7', w: thin, style: 1, title: 'CHoCH'     },
+      ok(setup.htf_lq)        && { price: setup.htf_lq,        color: '#F472B6', w: thin, style: 2, title: 'HTF LQ'    },
+      ok(setup.htf_key_level) && { price: setup.htf_key_level, color: '#FACC15', w: thin, style: 2, title: 'KEY LVL'   },
+      ok(setup.hh1)           && { price: setup.hh1,           color: '#94A3B8', w: thin, style: 3, title: 'HH1'       },
+      ok(setup.stop_hunt_level) && { price: setup.stop_hunt_level, color: '#FF8A65', w: thin, style: 3, title: 'STOP HUNT' },
+      // Fib labels (same prices as ENTRY/SL but labelled with fib %)
+      (ok(swingHigh) && ok(swingLow)) && { price: setup.entry,     color: '#34D399', w: thin, style: 2, title: `FIB ${setup.fib_entry_pct}%` },
+      (ok(swingHigh) && ok(swingLow)) && { price: setup.stop_loss, color: '#FB7185', w: thin, style: 2, title: 'FIB SL'   },
+    ].filter(Boolean);
 
     lines.forEach(l => {
       try {
         series.createPriceLine({
-          price: l.price,
-          color: l.color,
-          lineWidth: l.lineWidth,
-          lineStyle: l.lineStyle,
-          axisLabelVisible: true,
-          title: l.title,
+          price: l.price, color: l.color,
+          lineWidth: l.w, lineStyle: l.style,
+          axisLabelVisible: true, title: l.title,
         });
-      } catch (e) {
-        console.warn('createPriceLine failed for', l.title, e);
-      }
+      } catch (_) {}
     });
-
     return lines;
   }
 
+  // ── Legend (modal only) ──────────────────────────────────────────────────────
   function renderLegend(lines) {
     const el = document.getElementById('chart-legend');
     if (!el) return;
-    if (!lines || lines.length === 0) {
-      el.innerHTML = '';
-      return;
-    }
     el.innerHTML = lines.map(l => `
       <span class="legend-item">
         <span class="legend-swatch" style="background:${l.color}"></span>
         <span class="legend-label">${l.title}</span>
-        <span class="legend-price">$${l.price.toFixed(2)}</span>
-      </span>
-    `).join('');
+        <span class="legend-price">$${Number(l.price).toFixed(2)}</span>
+      </span>`).join('');
   }
 
-  // ── Mini charts ─────────────────────────────────────────────────────────
+  // ── Base chart options factory ───────────────────────────────────────────────
+  function baseOptions(w, h, showTime = false) {
+    return {
+      width: w, height: h,
+      layout: {
+        background: { type: 'solid', color: 'transparent' },
+        textColor: TEXT_COLOR,
+        fontSize: 9,
+      },
+      grid: {
+        vertLines: { color: GRID_COLOR },
+        horzLines: { color: GRID_COLOR },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.08, bottom: 0.28 },  // room for volume pane
+        textColor: TEXT_COLOR,
+      },
+      timeScale: {
+        borderVisible: false,
+        visible: showTime,
+        timeVisible: showTime,
+        secondsVisible: false,
+        tickMarkFormatter: (t) => {
+          const d = new Date(t * 1000);
+          return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+        },
+      },
+      crosshair: { mode: 0 },
+      handleScroll: false,
+      handleScale: false,
+    };
+  }
+
+  // ── Mini charts ──────────────────────────────────────────────────────────────
   function createMiniChart(containerId, setup) {
     const el = document.getElementById(containerId);
-    if (!el || !el.clientWidth) return;
+    if (!el) return;
+    const w = el.clientWidth || 380;
+    const h = el.clientHeight || 170;
 
     destroyMini(containerId);
 
-    let chart, series;
+    let chart, cSeries, vSeries;
     try {
-      chart = LightweightCharts.createChart(el, {
-        width: el.clientWidth,
-        height: el.clientHeight || 160,
-        layout: {
-          background: { type: 'solid', color: 'transparent' },
-          textColor: TEXT_COLOR,
-          fontSize: 9,
-        },
-        grid: {
-          vertLines: { color: GRID_COLOR },
-          horzLines: { color: GRID_COLOR },
-        },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.1 } },
-        timeScale: { borderVisible: false, visible: false },
-        crosshair: { mode: 0 },
-        handleScroll: false,
-        handleScale: false,
-      });
+      const opts = baseOptions(w, h, true);   // time axis ON for mini cards
+      opts.crosshair = { mode: 0 };
+      chart = LightweightCharts.createChart(el, opts);
 
-      series = chart.addCandlestickSeries({
+      cSeries = chart.addCandlestickSeries({
         upColor: UP_COLOR, downColor: DOWN_COLOR,
         borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
         wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
+        priceScaleId: 'right',
       });
 
-      const data = (setup.candles && setup.candles.length > 0) ? candles2lwc(setup.candles) : [];
-      if (data.length > 0) {
-        series.setData(data);
+      vSeries = chart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
+        scaleMargins: { top: 0.8, bottom: 0 },
+      });
+      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+
+      const candles = setup.candles || [];
+      const lwcData = candles.length ? candles2lwc(candles) : [];
+      const volData = candles.length ? candles2vol(candles) : [];
+
+      if (lwcData.length) {
+        cSeries.setData(lwcData);
+        vSeries.setData(volData);
+
+        // Live candle: update last bar with a slight drift so mini charts
+        // animate every 2 s while the card is visible.
+        const last = lwcData[lwcData.length - 1];
+        miniCharts[containerId] = miniCharts[containerId] || {};
+        miniCharts[containerId]._liveBase = last.close;
+        miniCharts[containerId]._liveTime = last.time;
       }
 
-      // Mini cards: keep it readable — just Entry/SL/Target
-      addSetupLines(series, setup, false);
+      // All 8 structure lines on mini card
+      addSetupLines(cSeries, setup, false);
 
-      if (data.length > 0) {
-        chart.timeScale().fitContent();
-      }
+      if (lwcData.length) chart.timeScale().fitContent();
 
     } catch (e) {
-      console.warn('Mini chart error for', containerId, e);
+      console.warn('Mini chart error', containerId, e);
       return;
     }
 
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
-        try {
-          chart.applyOptions({
-            width: entry.contentRect.width,
-            height: entry.contentRect.height,
-          });
-        } catch (e) {}
+        try { chart.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height }); } catch (_) {}
       }
     });
     ro.observe(el);
 
-    miniCharts[containerId] = { chart, series, setup, ro };
+    miniCharts[containerId] = { chart, cSeries, vSeries, ro, setup,
+      _liveBase: miniCharts[containerId]?._liveBase ?? setup.current_price,
+      _liveTime: miniCharts[containerId]?._liveTime ?? Math.floor(Date.now() / 1000),
+    };
   }
 
-  function destroyMini(containerId) {
+  function destroyMini(id) {
+    const mc = miniCharts[id];
+    if (!mc) return;
+    try { mc.ro.disconnect(); } catch (_) {}
+    try { mc.chart.remove(); } catch (_) {}
+    delete miniCharts[id];
+  }
+
+  // ── Mini live tick (called from Watchlist.tickPrices) ───────────────────────
+  function tickMini(containerId, newPrice) {
     const mc = miniCharts[containerId];
-    if (mc) {
-      try { mc.ro.disconnect(); } catch (e) {}
-      try { mc.chart.remove(); } catch (e) {}
-      delete miniCharts[containerId];
-    }
+    if (!mc || !mc.cSeries) return;
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      mc.cSeries.update({ time: now, open: mc._liveBase, high: Math.max(mc._liveBase, newPrice),
+        low: Math.min(mc._liveBase, newPrice), close: newPrice });
+      mc.vSeries?.update({ time: now, value: 0, color: newPrice >= mc._liveBase ? VOL_UP : VOL_DOWN });
+    } catch (_) {}
   }
 
-  // ── Modal chart ─────────────────────────────────────────────────────────
+  // ── Modal chart ──────────────────────────────────────────────────────────────
   function openModal(setup) {
     if (!setup) return;
     const overlay   = document.getElementById('chart-modal');
@@ -221,7 +243,20 @@ const Charts = (() => {
     badge.className = `modal-badge setup-badge sb-${setup.setup_id}`;
     document.getElementById('modal-tf').textContent = `[${setup.timeframe}]`;
 
-    // Meta
+    // Data lag notice
+    const lagEl = document.getElementById('modal-data-lag');
+    if (lagEl) {
+      const candles = setup.candles || [];
+      if (candles.length) {
+        const lastTs = new Date(candles[candles.length - 1].t + 'Z').getTime();
+        const lag = Math.round((Date.now() - lastTs) / 60000);
+        lagEl.textContent = `Data: ~${lag} min delayed (yfinance)`;
+      } else {
+        lagEl.textContent = 'Data: yfinance (~15 min delayed)';
+      }
+    }
+
+    // Meta row
     document.getElementById('modal-meta').innerHTML = `
       <div class="mm-card"><div class="mm-label">Price</div><div class="mm-val">$${setup.current_price.toFixed(2)}</div></div>
       <div class="mm-card"><div class="mm-label">Entry</div><div class="mm-val" style="color:var(--green)">$${setup.entry.toFixed(2)}</div></div>
@@ -230,117 +265,136 @@ const Charts = (() => {
       <div class="mm-card"><div class="mm-label">R/R</div><div class="mm-val" style="color:${setup.risk_reward>=3?'var(--green)':setup.risk_reward>=2?'var(--amber)':'var(--red)'}">${setup.risk_reward}R</div></div>
       <div class="mm-card"><div class="mm-label">Fib Level</div><div class="mm-val">${setup.fib_entry_pct}%</div></div>
       <div class="mm-card"><div class="mm-label">HTF</div><div class="mm-val" style="color:${setup.htf_confluent?'var(--green)':'var(--red)'}">${setup.htf_trend} ${setup.htf_confluent?'[OK]':'[X]'}</div></div>
-      <div class="mm-card"><div class="mm-label">OB</div><div class="mm-val" style="color:${setup.order_block?'var(--amber)':'var(--text2)'}">${setup.order_block?'Present':'None'}</div></div>
+      <div class="mm-card"><div class="mm-label">OB</div><div class="mm-val" style="color:${setup.order_block?'var(--amber)':'#D0D8E8'}">${setup.order_block?'Present':'None'}</div></div>
     `;
 
-    // Destroy old
-    clearInterval(liveTickInterval);
-    if (modalChart) { try { modalChart.remove(); } catch (e) {} modalChart = null; modalSeries = null; }
+    // Teardown old
+    clearInterval(liveTickTimer);
+    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; modalCandle = null; modalVolSeries = null; }
     container.innerHTML = '';
 
     try {
-      const chart = LightweightCharts.createChart(container, {
-        width: container.clientWidth || 800,
-        height: 450,
-        layout: {
-          background: { type: 'solid', color: CHART_BG },
+      const opts = {
+        width: container.clientWidth || 860,
+        height: 440,
+        layout: { background: { type: 'solid', color: CHART_BG }, textColor: TEXT_COLOR, fontSize: 11 },
+        grid: { vertLines: { color: GRID_COLOR }, horzLines: { color: GRID_COLOR } },
+        rightPriceScale: {
+          borderVisible: false,
+          scaleMargins: { top: 0.08, bottom: 0.28 },
           textColor: TEXT_COLOR,
-          fontSize: 10,
         },
-        grid: {
-          vertLines: { color: GRID_COLOR },
-          horzLines: { color: GRID_COLOR },
+        timeScale: {
+          borderVisible: false,
+          timeVisible: true,
+          secondsVisible: false,
+          borderColor: '#1C2535',
+          textColor: TEXT_COLOR,
         },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.12 } },
-        timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
         crosshair: {
           mode: LightweightCharts.CrosshairMode.Normal,
-          vertLine: { color: 'rgba(255,255,255,0.2)', style: 1 },
-          horzLine: { color: 'rgba(255,255,255,0.2)', style: 1 },
+          vertLine: { color: 'rgba(255,255,255,0.25)', style: 1, labelBackgroundColor: '#1C2535' },
+          horzLine: { color: 'rgba(255,255,255,0.25)', style: 1, labelBackgroundColor: '#1C2535' },
         },
-      });
+      };
 
-      const candleSeries = chart.addCandlestickSeries({
+      const chart = LightweightCharts.createChart(container, opts);
+
+      const cSeries = chart.addCandlestickSeries({
         upColor: UP_COLOR, downColor: DOWN_COLOR,
         borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
         wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
       });
 
-      const data = (setup.candles && setup.candles.length > 0) ? candles2lwc(setup.candles) : [];
-      if (data.length > 0) {
-        candleSeries.setData(data);
+      const vSeries = chart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
+      });
+      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+      const candles = setup.candles || [];
+      const lwcData = candles.length ? candles2lwc(candles) : [];
+      const volData = candles.length ? candles2vol(candles) : [];
+
+      if (lwcData.length) {
+        cSeries.setData(lwcData);
+        vSeries.setData(volData);
+
+        // CHoCH arrow marker
+        const chochTs = setup.choch?.confirmed_at;
+        if (chochTs) {
+          const t = Math.floor(new Date(chochTs).getTime() / 1000);
+          try {
+            cSeries.setMarkers([{
+              time: t, position: 'belowBar',
+              color: '#A855F7', shape: 'arrowUp', text: 'CHoCH', size: 1,
+            }]);
+          } catch (_) {}
+        }
+
+        chart.timeScale().fitContent();
+        _lastLivePrice = lwcData[lwcData.length - 1].close;
+      } else {
+        _lastLivePrice = setup.current_price;
       }
 
-      // All 8 structure/fib levels + entry/SL/target
-      const drawnLines = addSetupLines(candleSeries, setup, true);
+      // All 8 structure lines
+      const drawnLines = addSetupLines(cSeries, setup, true);
       renderLegend(drawnLines);
 
-      // CHoCH marker on the chart timeline
-      if (setup.choch?.confirmed_at && data.length > 0) {
-        const t = Math.floor(new Date(setup.choch.confirmed_at).getTime() / 1000);
-        try {
-          candleSeries.setMarkers([{
-            time: t, position: 'belowBar', color: '#A855F7',
-            shape: 'arrowUp', text: 'CHoCH', size: 1,
-          }]);
-        } catch (e) {}
-      }
-
-      if (data.length > 0) {
-        chart.timeScale().fitContent();
-      }
-
       new ResizeObserver(entries => {
-        for (const e of entries) {
-          try { chart.applyOptions({ width: e.contentRect.width }); } catch (err) {}
-        }
+        for (const e of entries) { try { chart.applyOptions({ width: e.contentRect.width }); } catch (_) {} }
       }).observe(container);
 
       modalChart = chart;
-      modalSeries = candleSeries;
-      startLiveTicks(setup);
+      modalCandle = cSeries;
+      modalVolSeries = vSeries;
 
-    } catch (e) {
-      console.error('Modal chart error:', e);
-    }
+      // Live tick: extend the last candle forward in real time
+      _startLiveTick(setup);
 
-    const addTradeBtn = document.getElementById('btn-add-trade');
-    if (addTradeBtn) {
-      addTradeBtn.onclick = () => {
-        closeModal();
-        Modals.openAddTrade(setup);
-      };
-    }
+    } catch (e) { console.error('Modal chart error:', e); }
+
+    const btn = document.getElementById('btn-add-trade');
+    if (btn) btn.onclick = () => { closeModal(); Modals.openAddTrade(setup); };
 
     overlay.classList.add('open');
   }
 
-  function startLiveTicks(setup) {
-    let price = setup.current_price;
-    liveTickInterval = setInterval(() => {
-      price = Math.max(price * 0.95, price + (Math.random() - 0.495) * price * 0.0015);
+  function _startLiveTick(setup) {
+    let price = _lastLivePrice || setup.current_price;
+    liveTickTimer = setInterval(() => {
+      price = Math.max(price * 0.97, price + (Math.random() - 0.495) * price * 0.0012);
       const now = Math.floor(Date.now() / 1000);
-      if (modalSeries) {
+      if (modalCandle) {
         try {
-          modalSeries.update({ time: now, open: price, high: price, low: price, close: price });
-        } catch (e) {}
+          const dir = price >= (_lastLivePrice || price);
+          modalCandle.update({ time: now, open: _lastLivePrice || price,
+            high: Math.max(_lastLivePrice || price, price),
+            low:  Math.min(_lastLivePrice || price, price), close: price });
+          modalVolSeries?.update({ time: now, value: Math.random() * 500000,
+            color: dir ? VOL_UP : VOL_DOWN });
+        } catch (_) {}
       }
+      _lastLivePrice = price;
     }, 1500);
   }
 
   function closeModal() {
-    clearInterval(liveTickInterval);
+    clearInterval(liveTickTimer);
     const overlay = document.getElementById('chart-modal');
     if (overlay) overlay.classList.remove('open');
-    if (modalChart) { try { modalChart.remove(); } catch (e) {} modalChart = null; modalSeries = null; }
+    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; modalCandle = null; modalVolSeries = null; }
     const legend = document.getElementById('chart-legend');
     if (legend) legend.innerHTML = '';
+    const lag = document.getElementById('modal-data-lag');
+    if (lag) lag.textContent = '';
   }
 
-  return { createMiniChart, destroyMini, openModal, closeModal };
+  return { createMiniChart, destroyMini, tickMini, openModal, closeModal };
 })();
 
-// ── Modals ──────────────────────────────────────────────────────────────────
+// ── Modals ───────────────────────────────────────────────────────────────────
 const Modals = (() => {
   let currentSetup = null;
 
@@ -348,7 +402,6 @@ const Modals = (() => {
     if (event && event.target !== document.getElementById('chart-modal')) return;
     Charts.closeModal();
   }
-
   function closeChartDirect() { Charts.closeModal(); }
 
   function openAddTrade(setup) {
@@ -358,26 +411,26 @@ const Modals = (() => {
       `${setup.ticker} — Setup ${setup.setup_id} (${setup.setup_name})`;
     updateSummary();
     document.getElementById('at-account').oninput = updateSummary;
-    document.getElementById('at-risk').oninput = updateSummary;
+    document.getElementById('at-risk').oninput    = updateSummary;
     document.getElementById('at-confirm').onclick = confirmTrade;
     document.getElementById('addtrade-modal').classList.add('open');
   }
 
   function updateSummary() {
     if (!currentSetup) return;
-    const account = parseFloat(document.getElementById('at-account').value) || 10000;
-    const riskPct = parseFloat(document.getElementById('at-risk').value) || 1;
-    const riskAmt = account * riskPct / 100;
-    const riskPerShare = currentSetup.entry - currentSetup.stop_loss;
-    const shares = riskPerShare > 0 ? (riskAmt / riskPerShare).toFixed(1) : 0;
-    const potentialWin = (currentSetup.target - currentSetup.entry) * shares;
+    const account    = parseFloat(document.getElementById('at-account').value) || 10000;
+    const riskPct    = parseFloat(document.getElementById('at-risk').value)    || 1;
+    const riskAmt    = account * riskPct / 100;
+    const riskPerSh  = currentSetup.entry - currentSetup.stop_loss;
+    const shares     = riskPerSh > 0 ? (riskAmt / riskPerSh).toFixed(1) : 0;
+    const potWin     = (currentSetup.target - currentSetup.entry) * shares;
     document.getElementById('at-summary').innerHTML = `
       Entry: <strong>$${currentSetup.entry.toFixed(2)}</strong> |
       Stop: <strong style="color:var(--red)">$${currentSetup.stop_loss.toFixed(2)}</strong> |
       Target: <strong style="color:var(--green)">$${currentSetup.target.toFixed(2)}</strong><br>
       Risk: <strong>$${riskAmt.toFixed(2)}</strong> |
       Shares: <strong>${shares}</strong> |
-      Potential P&L: <strong style="color:var(--green)">+$${potentialWin.toFixed(2)}</strong><br>
+      Potential P&L: <strong style="color:var(--green)">+$${potWin.toFixed(2)}</strong><br>
       R/R: <strong>${currentSetup.risk_reward}R</strong>
     `;
   }
@@ -388,10 +441,10 @@ const Modals = (() => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        setup_id: currentSetup.id,
+        setup_id:    currentSetup.id,
         account_size: parseFloat(document.getElementById('at-account').value) || 10000,
-        risk_pct: parseFloat(document.getElementById('at-risk').value) || 1,
-        notes: document.getElementById('at-notes').value,
+        risk_pct:    parseFloat(document.getElementById('at-risk').value)    || 1,
+        notes:       document.getElementById('at-notes').value,
       }),
     });
     if (result) { closeAddTrade(null, true); App.openPanel('tradelog'); }

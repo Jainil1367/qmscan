@@ -28,9 +28,11 @@ class Scanner:
         alert_engine,
         universe: list[str],
         timeframes: Optional[list[str]] = None,
+        trade_store=None,
     ):
         self.data_client = data_client
         self.alert_engine = alert_engine
+        self.trade_store = trade_store
         self.universe = universe
         self.timeframes = timeframes or list(TIMEFRAMES.keys())
 
@@ -68,11 +70,11 @@ class Scanner:
             for ticker in self.universe:
                 tasks.append(self._scan_symbol(ticker, timeframe, new_watchlist, ticker_tf_setups))
 
-        batch_size = 10
-        for i in range(0, len(tasks), batch_size):
-            await asyncio.gather(*tasks[i:i + batch_size], return_exceptions=True)
-            if i + batch_size < len(tasks):
-                await asyncio.sleep(0.5)
+        from core.config import SCAN_BATCH_SIZE, SCAN_BATCH_DELAY
+        for i in range(0, len(tasks), SCAN_BATCH_SIZE):
+            await asyncio.gather(*tasks[i:i + SCAN_BATCH_SIZE], return_exceptions=True)
+            if i + SCAN_BATCH_SIZE < len(tasks):
+                await asyncio.sleep(SCAN_BATCH_DELAY)
 
         # ── Master Setup pass ─────────────────────────────────────────────
         for ticker, tf_setups in ticker_tf_setups.items():
@@ -151,6 +153,12 @@ class Scanner:
             result_dict[timeframe].append(setup)
             ticker_tf_setups[ticker][timeframe] = setup  # feed into master
 
+            if self.trade_store:
+                try:
+                    await self.trade_store.log_setup_event(setup, event="detected")
+                except Exception as e:
+                    logger.debug(f"History log error for {ticker}: {e}")
+
             await self.alert_engine.emit(setup)
 
             logger.info(
@@ -186,3 +194,4 @@ class Scanner:
                 if sid == setup_id:
                     return s if hasattr(s, 'to_dict') else s.best_setup
         return None
+

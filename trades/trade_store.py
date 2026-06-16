@@ -63,6 +63,35 @@ class TradeStore:
                 order_block INTEGER DEFAULT 0
             )
         """)
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS setup_history (
+                id TEXT PRIMARY KEY,
+                ticker TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                setup_id INTEGER NOT NULL,
+                setup_name TEXT NOT NULL,
+                event TEXT NOT NULL,
+                price REAL,
+                entry REAL,
+                stop_loss REAL,
+                target REAL,
+                risk_reward REAL,
+                fib_entry_pct REAL,
+                htf_confluent INTEGER DEFAULT 0,
+                order_block INTEGER DEFAULT 0,
+                stop_hunt_risk INTEGER DEFAULT 0,
+                htf_trend TEXT,
+                notes TEXT DEFAULT '',
+                detected_at TEXT,
+                logged_at TEXT NOT NULL
+            )
+        """)
+        await self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_ticker ON setup_history(ticker)"
+        )
+        await self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_logged ON setup_history(logged_at DESC)"
+        )
         await self._db.commit()
         logger.info(f"Trade store initialized at {self.db_path}")
 
@@ -239,6 +268,66 @@ class TradeStore:
                 2
             ),
         }
+
+    async def log_setup_event(
+        self,
+        setup: DetectedSetup,
+        event: str = "detected",
+        notes: str = "",
+    ) -> None:
+        """
+        Record a setup lifecycle event in setup_history.
+        event: 'detected' | 'stopped_out' | 'target_hit' | 'expired'
+        """
+        now = datetime.utcnow().isoformat()
+        row_id = f"{setup.id}_{event}"
+        await self._db.execute("""
+            INSERT OR IGNORE INTO setup_history (
+                id, ticker, timeframe, setup_id, setup_name,
+                event, price, entry, stop_loss, target,
+                risk_reward, fib_entry_pct, htf_confluent,
+                order_block, stop_hunt_risk, htf_trend,
+                notes, detected_at, logged_at
+            ) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?)
+        """, (
+            row_id,
+            setup.ticker, setup.timeframe, setup.setup_id, setup.setup_name,
+            event, round(setup.current_price, 4),
+            round(setup.entry, 4), round(setup.stop_loss, 4), round(setup.target, 4),
+            setup.risk_reward, round(setup.fib_entry_pct, 1),
+            1 if setup.htf_confluent else 0,
+            1 if setup.order_block else 0,
+            1 if setup.stop_hunt_risk else 0,
+            setup.htf_trend,
+            notes,
+            setup.detected_at.isoformat(),
+            now,
+        ))
+        await self._db.commit()
+
+    async def get_history(
+        self,
+        ticker: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        setup_id: Optional[int] = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        query = "SELECT * FROM setup_history WHERE 1=1"
+        params: list = []
+        if ticker:
+            query += " AND ticker=?"
+            params.append(ticker.upper())
+        if timeframe:
+            query += " AND timeframe=?"
+            params.append(timeframe)
+        if setup_id is not None:
+            query += " AND setup_id=?"
+            params.append(setup_id)
+        query += " ORDER BY logged_at DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
     async def _insert(self, trade: Trade):
         await self._db.execute("""

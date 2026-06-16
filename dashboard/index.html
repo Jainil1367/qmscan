@@ -36,6 +36,10 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       Trade Log
     </button>
+    <button class="hdr-btn" onclick="App.openPanel('history')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      History
+    </button>
     <button class="hdr-btn" onclick="App.rescan()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       Rescan
@@ -112,6 +116,7 @@
         <span class="modal-ticker" id="modal-ticker">—</span>
         <span class="modal-badge" id="modal-setup-badge"></span>
         <span class="modal-tf" id="modal-tf"></span>
+        <span class="modal-data-lag" id="modal-data-lag"></span>
       </div>
       <button class="modal-close" onclick="Modals.closeChartDirect()">X</button>
     </div>
@@ -184,9 +189,52 @@
   </div>
 </div>
 
+<!-- ── History Panel ───────────────────────────────────────────────────────── -->
+<div class="panel-overlay wide" id="history-panel">
+  <div class="panel-box" style="width:100%;display:flex;flex-direction:column;height:100%">
+    <div class="panel-header">
+      <span>Setup History Log</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="hdr-btn" style="font-size:10px;padding:4px 10px" onclick="History.load()">Refresh</button>
+        <button class="modal-close" onclick="App.closePanel('history')">X</button>
+      </div>
+    </div>
+    <!-- Stats bar -->
+    <div class="trade-stats-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="ts-card"><div class="ts-label">Total Events</div><div class="ts-val" id="hs-total">0</div></div>
+      <div class="ts-card"><div class="ts-label">Unique Tickers</div><div class="ts-val" id="hs-tickers">0</div></div>
+      <div class="ts-card"><div class="ts-label">Today</div><div class="ts-val green" id="hs-today">0</div></div>
+      <div class="ts-card"><div class="ts-label">HTF Confluent</div><div class="ts-val" id="hs-htf">0</div></div>
+    </div>
+    <!-- Filters -->
+    <div class="filter-bar" style="border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 16px;gap:10px">
+      <input type="text" class="filter-input" id="hist-search" placeholder="Filter ticker or setup..." oninput="History.filter()" style="width:220px">
+      <select class="sort-btn" id="hist-tf-filter" onchange="History.filter()" style="height:28px;padding:0 8px">
+        <option value="">All TF</option>
+        <option value="15m">15m</option>
+        <option value="1H">1H</option>
+        <option value="1D">1D</option>
+        <option value="1W">1W</option>
+      </select>
+      <select class="sort-btn" id="hist-setup-filter" onchange="History.filter()" style="height:28px;padding:0 8px">
+        <option value="">All Setups</option>
+        <option value="1">S1 Impulsive</option>
+        <option value="2">S2 Typical</option>
+        <option value="3">S3 Golden Zone</option>
+        <option value="4">S4 Deep</option>
+        <option value="5">Master</option>
+      </select>
+    </div>
+    <div class="panel-body" id="history-body">
+      <div class="empty-state-sm">Open this panel to load history.</div>
+    </div>
+  </div>
+</div>
+
 <script src="/static/js/app.js"></script>
 <script src="/static/js/charts.js"></script>
 <script src="/static/js/watchlist.js"></script>
 <script src="/static/js/tradelog.js"></script>
+<script src="/static/js/history.js"></script>
 </body>
 </html>

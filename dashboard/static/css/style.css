@@ -164,8 +164,89 @@ html, body {
   gap: 1px;
   min-width: 90px;
 }
-.stat-label { font-size: 9px; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
-.stat-val { font-size: 16px; font-weight: 600; color: var(--text0); }
+/* ── VISIBILITY FIXES — all grey labels now white/silver ─────────────────── */
+.stat-label      { font-size: 9px; color: var(--text1); letter-spacing: 0.5px; text-transform: uppercase; }
+.stat-val        { font-size: 16px; font-weight: 600; color: var(--text0); }
+.meta-key        { color: var(--text1); font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; }
+.meta-val        { color: var(--text0); font-weight: 600; }
+.company-name    { font-size: 10px; color: var(--text1); }
+.sector-tag      { font-size: 9px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border2); color: var(--text1); }
+.fib-info        { font-size: 10px; color: var(--text1); font-weight: 500; }
+.fib-pill        { font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border2); color: var(--text1); }
+.sort-label      { font-size: 10px; color: var(--text1); margin-right: 4px; }
+.sort-btn        { font-family: var(--font-mono); font-size: 10px; font-weight: 500; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--text1); cursor: pointer; transition: all 0.15s; }
+.sort-btn:hover  { background: var(--bg3); color: var(--text0); }
+.toggle-wrap     { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text1); cursor: pointer; }
+.header-sub      { font-size: 10px; color: var(--text1); letter-spacing: 0.3px; }
+.ws-status       { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text1); }
+.hdr-btn         { display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;font-weight:500;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:var(--bg3);color:var(--text0);cursor:pointer;transition:all 0.15s;white-space:nowrap; }
+.hdr-btn:hover   { background: var(--bg4); color: var(--text0); border-color: var(--border2); }
+.rr-bar-label    { display:flex;justify-content:space-between;font-size:9px;color:var(--text1);margin-bottom:3px; }
+.modal-tf        { font-size: 11px; color: var(--text1); }
+.mm-label        { font-size: 9px; color: var(--text1); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+.ts-label        { font-size: 9px; color: var(--text1); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.ac-msg          { font-size: 10px; color: var(--text1); line-height: 1.4; }
+.ac-time         { font-size: 9px; color: var(--text2); }
+.legend-label    { text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; color: var(--text0); }
+.legend-price    { color: var(--text1); }
+.legend-item     { display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--text1);white-space:nowrap; }
+.tcm             { font-size: 10px; color: var(--text1); }
+.tcm span        { color: var(--text0); font-weight: 600; }
+.at-row label    { font-size: 10px; color: var(--text1); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── Data lag notice in modal ─────────────────────────────────────────────── */
+.modal-data-lag {
+  font-size: 10px;
+  color: var(--amber);
+  margin-left: 10px;
+  font-style: italic;
+}
+
+/* ── Card chart: taller to show volume pane without squishing candles ──────── */
+.card-chart {
+  flex: 1;
+  min-height: 180px;
+  position: relative;
+  cursor: pointer;
+}
+
+/* ── History panel rows ───────────────────────────────────────────────────── */
+.hist-row {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  animation: card-in 0.2s ease;
+  transition: border-color 0.15s;
+}
+.hist-row:hover { border-color: var(--border2); }
+.hist-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hist-left { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hist-ticker { font-size: 14px; font-weight: 700; color: var(--text0); }
+.hist-badge {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid;
+  letter-spacing: 0.3px;
+}
+.hist-event {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid;
+  letter-spacing: 0.5px;
+}
+.hist-time  { font-size: 10px; color: var(--text1); white-space: nowrap; }
+.hist-name  { font-size: 11px; color: var(--text1); font-weight: 500; }
+.hist-meta  { display: flex; gap: 14px; flex-wrap: wrap; }
+.hm         { font-size: 10px; color: var(--text0); }
+.hm-k       { color: var(--text1); margin-right: 3px; font-size: 9px; text-transform: uppercase; }
 
 .setup-legend {
   display: flex;

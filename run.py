@@ -69,6 +69,7 @@ async def main(host: str, port: int):
         data_client=data_client,
         alert_engine=alert_engine,
         universe=universe,
+        trade_store=trade_store,
     )
     console.print("[green]OK[/green] Scanner initialized")
 
@@ -112,3 +113,4 @@ if __name__ == "__main__":
         host=args.host or HOST,
         port=args.port or PORT,
     ))
+
