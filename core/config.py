@@ -27,7 +27,8 @@ SCAN_INTERVAL: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "90"))
 UNIVERSE_SIZE: int = int(os.getenv("UNIVERSE_SIZE", "51"))
 SCAN_BATCH_SIZE: int = int(os.getenv("SCAN_BATCH_SIZE", "5"))
 SCAN_BATCH_DELAY: float = float(os.getenv("SCAN_BATCH_DELAY", "1.5"))
-ENABLE_SOUND_ALERTS: bool = os.getenv("ENABLE_SOUND_ALERTS", "true").lower() == "true"
+ENABLE_SOUND_ALERTS: bool = os.getenv("ENABLE_SOUND_ALERTS", "false").lower() == "true"
+ENABLE_PUSH_ALERTS: bool = os.getenv("ENABLE_PUSH_ALERTS", "false").lower() == "true"
 
 # ── Timeframes ───────────────────────────────────────────────────────────────
 
@@ -158,4 +159,4 @@ DEFAULT_ACCOUNT_SIZE: float = 10_000.0
 
 # ── Alert Cooldown ───────────────────────────────────────────────────────────
 
-ALERT_COOLDOWN_SECONDS: int = 300  # don't re-alert same symbol+setup for 5 min
+ALERT_COOLDOWN_SECONDS: int = int(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
