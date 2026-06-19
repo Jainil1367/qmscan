@@ -137,6 +137,10 @@ class Scanner:
             setup.htf_confluent = confluent
             setup.htf_trend = htf_trend
 
+            # ── Filter: skip setup 1 (Impulsive) ─────────────────────────
+            if setup.setup_id == 1:
+                return
+
             # ── Extra chart levels ────────────────────────────────────────
             from detectors.choch import find_swing_points
             from core.models import SwingType
@@ -149,6 +153,10 @@ class Scanner:
                 setup.htf_key_level = max(c.high for c in htf_candles)
                 setup.htf_lq        = min(c.low  for c in htf_candles)
             setup.stop_hunt_level = setup.choch.swing_low.price * 0.995
+
+            # ── Candlestick pattern detection ─────────────────────────────
+            from detectors.candle_patterns import detect_patterns
+            setup.candle_patterns = detect_patterns(candles)
 
             result_dict[timeframe].append(setup)
             ticker_tf_setups[ticker][timeframe] = setup  # feed into master
@@ -183,6 +191,7 @@ class Scanner:
             "type": "watchlist_update",
             "scan_count": self._scan_count,
             "last_scan": self._last_scan.isoformat() if self._last_scan else None,
+            "scan_interval": SCAN_INTERVAL,
             "total_setups": total,
             "watchlist": watchlist_data,
         }

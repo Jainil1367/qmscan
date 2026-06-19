@@ -153,10 +153,12 @@ class DetectedSetup:
     risk_reward: float = 0.0
     risk_pct: float = 0.0
     # extra chart levels
-    htf_key_level: float = 0.0      # HTF significant level (prev swing high on HTF)
-    htf_lq: float = 0.0             # HTF liquidity (prev swing low on HTF)
-    stop_hunt_level: float = 0.0    # level below swing low where stop hunt likely
-    hh1: float = 0.0                # previous swing high before current HH
+    htf_key_level: float = 0.0
+    htf_lq: float = 0.0
+    stop_hunt_level: float = 0.0
+    hh1: float = 0.0
+    # candlestick patterns detected on last 3 bars
+    candle_patterns: list = field(default_factory=list)
 
     def __post_init__(self):
         risk = self.entry - self.stop_loss
@@ -188,6 +190,7 @@ class DetectedSetup:
             "htf_lq": round(self.htf_lq, 4),
             "stop_hunt_level": round(self.stop_hunt_level, 4),
             "hh1": round(self.hh1, 4),
+            "candle_patterns": self.candle_patterns,
             "candles": [c.to_dict() for c in self.candles[-60:]],
         }
 
@@ -304,3 +307,4 @@ class Trade:
             "htf_confluent": self.htf_confluent,
             "order_block": self.order_block,
         }
+

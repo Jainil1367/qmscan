@@ -182,6 +182,15 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         ok = await trade_store.cancel_trade(trade_id)
         return {"cancelled": ok}
 
+    # ── Candles endpoint (for float chart TF switcher) ───────────────────────
+    @app.get("/api/candles/{ticker}/{timeframe}")
+    async def get_candles(ticker: str, timeframe: str, limit: int = 200):
+        try:
+            candles = await scanner.data_client.get_bars(ticker.upper(), timeframe, limit=limit)
+            return {"candles": [c.to_dict() for c in candles], "count": len(candles)}
+        except Exception as e:
+            return {"candles": [], "error": str(e)}
+
     # ── Setup History ─────────────────────────────────────────────────────────
     @app.get("/api/history")
     async def get_history(

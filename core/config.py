@@ -23,35 +23,35 @@ PORT: int = int(os.getenv("PORT", "8000"))
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
 
-SCAN_INTERVAL: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "90"))
+SCAN_INTERVAL: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
 UNIVERSE_SIZE: int = int(os.getenv("UNIVERSE_SIZE", "51"))
 SCAN_BATCH_SIZE: int = int(os.getenv("SCAN_BATCH_SIZE", "5"))
 SCAN_BATCH_DELAY: float = float(os.getenv("SCAN_BATCH_DELAY", "1.5"))
-ENABLE_SOUND_ALERTS: bool = os.getenv("ENABLE_SOUND_ALERTS", "false").lower() == "true"
-ENABLE_PUSH_ALERTS: bool = os.getenv("ENABLE_PUSH_ALERTS", "false").lower() == "true"
+ENABLE_SOUND_ALERTS: bool = os.getenv("ENABLE_SOUND_ALERTS", "true").lower() == "true"
+ENABLE_PUSH_ALERTS: bool = os.getenv("ENABLE_PUSH_ALERTS", "true").lower() == "true"
 
 # ── Timeframes ───────────────────────────────────────────────────────────────
 
 # Maps UI label → (Polygon multiplier, Polygon timespan, candle count to fetch)
 TIMEFRAMES: dict[str, dict] = {
-    "15m": {"multiplier": 15, "timespan": "minute", "bars": 200, "label": "15 Min"},
     "1H":  {"multiplier": 1,  "timespan": "hour",   "bars": 200, "label": "1 Hour"},
+    "4H":  {"multiplier": 4,  "timespan": "hour",   "bars": 200, "label": "4 Hour"},
     "1D":  {"multiplier": 1,  "timespan": "day",    "bars": 200, "label": "Daily"},
     "1W":  {"multiplier": 1,  "timespan": "week",   "bars": 100, "label": "Weekly"},
 }
 
 # yfinance interval codes
 YFINANCE_TIMEFRAME_MAP: dict[str, str] = {
-    "15m": "15m",
     "1H":  "1h",
+    "4H":  "1h",   # yfinance has no native 4h; we resample 1h → 4h in the client
     "1D":  "1d",
     "1W":  "1wk",
 }
 
 # HTF pairs: when scanning TF X, check alignment on TF Y
 HTF_PAIRS: dict[str, str] = {
-    "15m": "1H",
-    "1H":  "1D",
+    "1H":  "4H",
+    "4H":  "1D",
     "1D":  "1W",
     "1W":  "1W",
 }
@@ -159,4 +159,5 @@ DEFAULT_ACCOUNT_SIZE: float = 10_000.0
 
 # ── Alert Cooldown ───────────────────────────────────────────────────────────
 
-ALERT_COOLDOWN_SECONDS: int = int(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
+ALERT_COOLDOWN_SECONDS: int = 300  # don't re-alert same symbol+setup for 5 min
+

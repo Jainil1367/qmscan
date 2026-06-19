@@ -17,24 +17,23 @@
   </div>
   <div class="header-center">
     <div class="tf-tabs" id="tf-tabs">
-      <button class="tf-tab active" data-tf="15m">15 Min</button>
-      <button class="tf-tab" data-tf="1H">1 Hour</button>
+      <button class="tf-tab active" data-tf="1H">1 Hour</button>
+      <button class="tf-tab" data-tf="4H">4 Hour</button>
       <button class="tf-tab" data-tf="1D">Daily</button>
       <button class="tf-tab" data-tf="1W">Weekly</button>
-      <button class="tf-tab master-tab" data-tf="master">Master</button>
     </div>
   </div>
   <div class="header-right">
     <div class="ws-status" id="ws-status">
       <span class="ws-dot"></span><span id="ws-label">Connecting...</span>
     </div>
+    <button class="hdr-btn" onclick="WatchlistPanel.toggle()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Watchlist
+    </button>
     <button class="hdr-btn" id="btn-alerts" onclick="App.openPanel('alerts')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       Alerts <span class="alert-badge" id="alert-count" style="display:none">0</span>
-    </button>
-    <button class="hdr-btn" onclick="App.openPanel('tradelog')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      Trade Log
     </button>
     <button class="hdr-btn" onclick="App.openPanel('history')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -49,32 +48,13 @@
 
 <!-- ── Stats Bar ──────────────────────────────────────────────────────────── -->
 <div class="stats-bar">
-  <div class="stat-item">
-    <span class="stat-label">In Setup</span>
-    <span class="stat-val" id="stat-total">0</span>
-  </div>
-  <div class="stat-item">
-    <span class="stat-label">Scans Done</span>
-    <span class="stat-val" id="stat-scans">0</span>
-  </div>
-  <div class="stat-item">
-    <span class="stat-label">Best R/R</span>
-    <span class="stat-val" id="stat-bestrr">—</span>
-  </div>
-  <div class="stat-item">
-    <span class="stat-label">HTF Confluent</span>
-    <span class="stat-val" id="stat-htf">0</span>
-  </div>
-  <div class="stat-item">
-    <span class="stat-label">Last Scan</span>
-    <span class="stat-val" id="stat-lastscan">—</span>
-  </div>
-  <div class="stat-item">
-    <span class="stat-label">Next Scan</span>
-    <span class="stat-val" id="stat-next">60s</span>
-  </div>
+  <div class="stat-item"><span class="stat-label">In Setup</span><span class="stat-val" id="stat-total">0</span></div>
+  <div class="stat-item"><span class="stat-label">Scans Done</span><span class="stat-val" id="stat-scans">0</span></div>
+  <div class="stat-item"><span class="stat-label">Best R/R</span><span class="stat-val" id="stat-bestrr">—</span></div>
+  <div class="stat-item"><span class="stat-label">HTF Confluent</span><span class="stat-val" id="stat-htf">0</span></div>
+  <div class="stat-item"><span class="stat-label">Last Scan</span><span class="stat-val" id="stat-lastscan">—</span></div>
+  <div class="stat-item"><span class="stat-label">Next Scan</span><span class="stat-val" id="stat-next">90s</span></div>
   <div class="setup-legend">
-    <span class="sl s1">① Impulsive ~38.2%</span>
     <span class="sl s2">② Typical 50–61.8%</span>
     <span class="sl s3">③ Golden Zone ~78.6%</span>
     <span class="sl s4">④ Deep ~88.6%</span>
@@ -91,24 +71,61 @@
     <button class="sort-btn" data-sort="fib" onclick="App.sort('fib',this)">Fib%</button>
     <button class="sort-btn" data-sort="htf" onclick="App.sort('htf',this)">HTF</button>
   </div>
-  <label class="toggle-wrap">
-    <input type="checkbox" id="htf-only" onchange="App.filter()"> HTF only
-  </label>
-  <label class="toggle-wrap">
-    <input type="checkbox" id="ob-only" onchange="App.filter()"> OB only
-  </label>
+  <label class="toggle-wrap"><input type="checkbox" id="htf-only" onchange="App.filter()"> HTF only</label>
+  <label class="toggle-wrap"><input type="checkbox" id="ob-only" onchange="App.filter()"> OB only</label>
 </div>
 
-<!-- ── Main Watchlist Grid ────────────────────────────────────────────────── -->
-<main class="main" id="watchlist-grid">
-  <div class="empty-state" id="empty-state">
-    <div class="empty-icon">⟳</div>
-    <div class="empty-title">Waiting for scanner...</div>
-    <div class="empty-sub">Ensure your API keys are set in .env and the server is running.</div>
-  </div>
-</main>
+<!-- ── Main grid + watchlist side panel layout ────────────────────────────── -->
+<div class="app-body" id="app-body">
+  <main class="main" id="watchlist-grid">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">&#x27F3;</div>
+      <div class="empty-title">Waiting for scanner...</div>
+      <div class="empty-sub">Ensure your API keys are set in .env and the server is running.</div>
+    </div>
+  </main>
 
-<!-- ── Chart Modal ────────────────────────────────────────────────────────── -->
+  <!-- ── Watchlist Side Panel ─────────────────────────────────────────────── -->
+  <aside class="wl-panel" id="wl-panel">
+    <div class="wl-header">
+      <span class="wl-title">Active Setups</span>
+      <button class="wl-close" onclick="WatchlistPanel.toggle()">X</button>
+    </div>
+    <div class="wl-ticker-strip" id="wl-ticker-strip">
+      <!-- live scrolling ticker populated by JS -->
+    </div>
+    <div class="wl-filter">
+      <input type="text" class="filter-input" id="wl-search" placeholder="Search ticker..." oninput="WatchlistPanel.filter()" style="width:100%;font-size:11px">
+    </div>
+    <div class="wl-list" id="wl-list">
+      <!-- rows populated by JS -->
+    </div>
+  </aside>
+</div>
+
+<!-- ── Floating Chart (Watchlist click) ──────────────────────────────────── -->
+<div class="float-chart-overlay" id="float-chart-overlay">
+  <div class="float-chart-box" id="float-chart-box">
+    <div class="float-chart-header" id="float-chart-drag-handle">
+      <div class="float-chart-title">
+        <span id="fc-ticker">—</span>
+        <span id="fc-badge" class="modal-badge"></span>
+        <span id="fc-lag" class="modal-data-lag"></span>
+      </div>
+      <div class="float-chart-tfs">
+        <button class="fctf active" data-tf="1H" onclick="FloatChart.setTF('1H',this)">1H</button>
+        <button class="fctf" data-tf="4H" onclick="FloatChart.setTF('4H',this)">4H</button>
+        <button class="fctf" data-tf="1D" onclick="FloatChart.setTF('1D',this)">1D</button>
+        <button class="fctf" data-tf="1W" onclick="FloatChart.setTF('1W',this)">1W</button>
+      </div>
+      <button class="modal-close" onclick="FloatChart.close()">X</button>
+    </div>
+    <div class="float-chart-container" id="float-chart-container"></div>
+    <div class="chart-legend" id="float-chart-legend"></div>
+  </div>
+</div>
+
+<!-- ── Expanded chart modal ───────────────────────────────────────────────── -->
 <div class="modal-overlay" id="chart-modal" onclick="Modals.closeChart(event)">
   <div class="modal-box chart-modal-box">
     <div class="modal-header">
@@ -124,7 +141,6 @@
     <div class="chart-legend" id="chart-legend"></div>
     <div class="modal-meta" id="modal-meta"></div>
     <div class="modal-actions">
-      <button class="action-btn green" id="btn-add-trade">+ Add to Trade Log</button>
       <button class="action-btn gray" onclick="Modals.closeChartDirect()">Close</button>
     </div>
   </div>
@@ -143,53 +159,7 @@
   </div>
 </div>
 
-<!-- ── Trade Log Panel ────────────────────────────────────────────────────── -->
-<div class="panel-overlay" id="tradelog-panel">
-  <div class="panel-box wide">
-    <div class="panel-header">
-      <span>Trade Log</span>
-      <button class="modal-close" onclick="App.closePanel('tradelog')">X</button>
-    </div>
-    <div class="trade-stats-row" id="trade-stats-row">
-      <div class="ts-card"><div class="ts-label">Total</div><div class="ts-val" id="ts-total">0</div></div>
-      <div class="ts-card"><div class="ts-label">Win Rate</div><div class="ts-val green" id="ts-winrate">0%</div></div>
-      <div class="ts-card"><div class="ts-label">Total P&L</div><div class="ts-val" id="ts-pnl">$0</div></div>
-      <div class="ts-card"><div class="ts-label">Total R</div><div class="ts-val" id="ts-r">0R</div></div>
-      <div class="ts-card"><div class="ts-label">Expectancy</div><div class="ts-val" id="ts-exp">0R</div></div>
-    </div>
-    <div class="panel-body" id="tradelog-body">
-      <div class="empty-state-sm">No trades logged yet. Click + Add to Trade Log on any setup.</div>
-    </div>
-  </div>
-</div>
-
-<!-- ── Add Trade Modal ────────────────────────────────────────────────────── -->
-<div class="modal-overlay" id="addtrade-modal" onclick="Modals.closeAddTrade(event)">
-  <div class="modal-box addtrade-box">
-    <div class="modal-header">
-      <span>Add Trade — <span id="at-ticker">—</span></span>
-      <button class="modal-close" onclick="Modals.closeAddTrade(null,true)">X</button>
-    </div>
-    <div class="at-form">
-      <div class="at-row">
-        <label>Account Size ($)</label>
-        <input type="number" id="at-account" value="10000" min="100">
-      </div>
-      <div class="at-row">
-        <label>Risk % per trade</label>
-        <input type="number" id="at-risk" value="1" min="0.1" max="5" step="0.1">
-      </div>
-      <div class="at-row">
-        <label>Notes</label>
-        <input type="text" id="at-notes" placeholder="Optional notes...">
-      </div>
-      <div class="at-summary" id="at-summary"></div>
-      <button class="action-btn green full" id="at-confirm">Confirm Trade Entry</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── History Panel ───────────────────────────────────────────────────────── -->
+<!-- ── History Panel ─────────────────────────────────────────────────────── -->
 <div class="panel-overlay wide" id="history-panel">
   <div class="panel-box" style="width:100%;display:flex;flex-direction:column;height:100%">
     <div class="panel-header">
@@ -199,30 +169,26 @@
         <button class="modal-close" onclick="App.closePanel('history')">X</button>
       </div>
     </div>
-    <!-- Stats bar -->
     <div class="trade-stats-row" style="grid-template-columns:repeat(4,1fr)">
       <div class="ts-card"><div class="ts-label">Total Events</div><div class="ts-val" id="hs-total">0</div></div>
       <div class="ts-card"><div class="ts-label">Unique Tickers</div><div class="ts-val" id="hs-tickers">0</div></div>
       <div class="ts-card"><div class="ts-label">Today</div><div class="ts-val green" id="hs-today">0</div></div>
       <div class="ts-card"><div class="ts-label">HTF Confluent</div><div class="ts-val" id="hs-htf">0</div></div>
     </div>
-    <!-- Filters -->
     <div class="filter-bar" style="border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 16px;gap:10px">
       <input type="text" class="filter-input" id="hist-search" placeholder="Filter ticker or setup..." oninput="History.filter()" style="width:220px">
       <select class="sort-btn" id="hist-tf-filter" onchange="History.filter()" style="height:28px;padding:0 8px">
         <option value="">All TF</option>
-        <option value="15m">15m</option>
         <option value="1H">1H</option>
+        <option value="4H">4H</option>
         <option value="1D">1D</option>
         <option value="1W">1W</option>
       </select>
       <select class="sort-btn" id="hist-setup-filter" onchange="History.filter()" style="height:28px;padding:0 8px">
         <option value="">All Setups</option>
-        <option value="1">S1 Impulsive</option>
         <option value="2">S2 Typical</option>
         <option value="3">S3 Golden Zone</option>
         <option value="4">S4 Deep</option>
-        <option value="5">Master</option>
       </select>
     </div>
     <div class="panel-body" id="history-body">
@@ -234,7 +200,8 @@
 <script src="/static/js/app.js"></script>
 <script src="/static/js/charts.js"></script>
 <script src="/static/js/watchlist.js"></script>
-<script src="/static/js/tradelog.js"></script>
+<script src="/static/js/float_chart.js"></script>
+<script src="/static/js/watchlist_panel.js"></script>
 <script src="/static/js/history.js"></script>
 </body>
 </html>

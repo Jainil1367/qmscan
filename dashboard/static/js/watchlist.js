@@ -1,10 +1,25 @@
 /**
  * watchlist.js — Renders stock cards and drives live price ticker updates.
+ * Setup 1 (Impulsive) and Master removed.
+ * Adds: candlestick pattern badges, key level shading note, setup name in badge.
  */
 
 const Watchlist = (() => {
   const SETUP_COLORS = {
-    1: '#0EA5E9', 2: '#A855F7', 3: '#F59E0B', 4: '#FF4560', 5: '#22d3ee'
+    2: '#A855F7', 3: '#F59E0B', 4: '#FF4560',
+  };
+  const SETUP_NAMES = {
+    2: 'Typical Correction',
+    3: 'Golden Zone',
+    4: 'Deep Correction',
+  };
+
+  const STRENGTH_COLOR = {
+    'very high':   '#00D68F',
+    'high':        '#34D399',
+    'medium-high': '#FACC15',
+    'medium':      '#EF9F27',
+    'low':         '#94A3B8',
   };
 
   const livePrices = {};
@@ -31,6 +46,7 @@ const Watchlist = (() => {
           App.state.scanCount > 0 ? 'No setups match current filters' : 'Waiting for first scan...';
       }
       stopTicker();
+      WatchlistPanel.update([]);
       return;
     }
 
@@ -51,75 +67,61 @@ const Watchlist = (() => {
     });
 
     startTicker(setups);
+    WatchlistPanel.update(setups);
   }
 
   // ── Card builder ──────────────────────────────────────────────────────────
   function buildCard(s) {
-    const isMaster  = s.setup_id === 5;
-    const rr        = s.risk_reward;
+    const rr        = s.risk_reward ?? 0;
     const rrColor   = rr >= 3.0 ? 'var(--green)' : rr >= 2.0 ? 'var(--amber)' : 'var(--red)';
     const rrWidth   = Math.min(100, (rr / 5) * 100).toFixed(0);
     const cardColor = SETUP_COLORS[s.setup_id] || '#888';
+    const setupName = SETUP_NAMES[s.setup_id] || s.setup_name || '';
 
     // Flags
     const flags = [];
-    if (isMaster) {
-      flags.push(`<span class="flag" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">${s.master_tf_count} TF Confluent</span>`);
-      flags.push(`<span class="flag" style="color:#22d3ee;border-color:rgba(34,211,238,0.2);font-size:9px">${s.master_timeframes}</span>`);
-    }
     if (s.htf_confluent) flags.push(`<span class="flag flag-htf">HTF [OK]</span>`);
     if (s.order_block)   flags.push(`<span class="flag flag-ob">OB [OK]</span>`);
     if (s.stop_hunt_risk) flags.push(`<span class="flag flag-sh">Stop Hunt [!]</span>`);
 
+    // Candlestick pattern badges
+    const patterns = s.candle_patterns || [];
+    const patternHTML = patterns.length ? `
+      <div class="pattern-row">
+        ${patterns.map(p => `
+          <span class="pattern-badge" title="${p.description}">
+            <span class="pb-name">${p.name}</span>
+            <span class="pb-rate" style="color:${STRENGTH_COLOR[p.strength] || '#888'}">${p.success_rate}%</span>
+          </span>
+        `).join('')}
+      </div>` : '';
+
     // Meta grid
     const meta = [
-      { k: 'Entry',  v: `$${s.entry.toFixed(2)}`,     cls: 'green' },
-      { k: 'Stop',   v: `$${s.stop_loss.toFixed(2)}`,  cls: 'red'   },
-      { k: 'Target', v: `$${s.target.toFixed(2)}`,     cls: 'blue'  },
-      { k: 'R/R',    v: `${rr}R`,                      cls: ''      },
-      { k: isMaster ? 'Score' : 'Fib %',
-        v: isMaster ? `${s.master_score}pts` : `${s.fib_entry_pct}%`,
-        cls: isMaster ? 'green' : '' },
-      { k: 'HTF',    v: s.htf_trend || 'bullish',      cls: s.htf_confluent ? 'green' : '' },
+      { k: 'Entry',  v: `$${(s.entry ?? 0).toFixed(2)}`,     cls: 'green' },
+      { k: 'Stop',   v: `$${(s.stop_loss ?? 0).toFixed(2)}`, cls: 'red'   },
+      { k: 'Target', v: `$${(s.target ?? 0).toFixed(2)}`,    cls: 'blue'  },
+      { k: 'R/R',    v: `${rr}R`,                            cls: ''      },
+      { k: 'Fib %',  v: `${s.fib_entry_pct ?? 0}%`,          cls: ''      },
+      { k: 'HTF',    v: s.htf_trend || 'bullish',             cls: s.htf_confluent ? 'green' : '' },
     ];
     const metaHTML = meta.map(m =>
       `<div class="meta-item"><span class="meta-key">${m.k}</span><span class="meta-val ${m.cls}">${m.v}</span></div>`
     ).join('');
 
-    // Pills
-    let pills = '';
-    if (isMaster) {
-      pills = (s.master_setup_ids || []).map((id, i) => {
-        const tfLabel = (s.master_timeframes || '').split(' + ')[i] || '';
-        return `<span class="fib-pill" style="color:${SETUP_COLORS[id]||'#888'}">${tfLabel}</span>`;
-      }).join('');
-    } else {
-      const ob = s.order_block;
-      const slLabel = s.setup_id === 1 ? '61.8%' : s.setup_id === 2 ? '88.6%' : '113%';
-      pills = `
-        <span class="fib-pill fp-entry">Entry: ${s.fib_entry_pct}%</span>
-        <span class="fib-pill">CHoCH: ${s.choch?.direction || 'bullish'}</span>
-        <span class="fib-pill fp-sl">SL: ${slLabel}</span>
-        <span class="fib-pill fp-tp">TP: HH</span>
-        ${ob ? `<span class="fib-pill" style="color:var(--amber)">OB: $${ob.bottom?.toFixed(2)}-$${ob.top?.toFixed(2)}</span>` : ''}
-      `;
-    }
+    // Fib pills
+    const ob = s.order_block;
+    const slLabel = s.setup_id === 2 ? '88.6%' : '113%';
+    const pills = `
+      <span class="fib-pill fp-entry">Entry: ${s.fib_entry_pct}%</span>
+      <span class="fib-pill">CHoCH: ${s.choch?.direction || 'bullish'}</span>
+      <span class="fib-pill fp-sl">SL: ${slLabel}</span>
+      <span class="fib-pill fp-tp">TP: HH</span>
+      ${ob ? `<span class="fib-pill" style="color:var(--amber)">OB: $${ob.bottom?.toFixed(2)}-$${ob.top?.toFixed(2)}</span>` : ''}
+    `;
 
-    const cardClass = isMaster
-      ? 'stock-card master-card confluent'
-      : `stock-card s${s.setup_id}-card${s.htf_confluent ? ' confluent' : ''}`;
-
-    const badgeStyle = isMaster
-      ? `style="color:#22d3ee;border-color:rgba(34,211,238,0.4);background:rgba(34,211,238,0.1)"`
-      : `class="setup-badge sb-${s.setup_id}"`;
-
-    const scoreLabel = isMaster ? `${s.master_score}pts` : `${rr}R`;
-    const scoreColor = isMaster ? '#22d3ee' : rrColor;
-    const barWidth   = isMaster ? Math.min(100, s.master_score * 8) : rrWidth;
-    const barLabel   = isMaster ? 'Confluence Score' : 'R/R Strength';
-    const bottomInfo = isMaster
-      ? `Multi-TF Confluence &middot; Score ${s.master_score}`
-      : `${s.setup_name} &middot; ${s.fib_entry_pct}% Fib Zone`;
+    const cardClass = `stock-card s${s.setup_id}-card${s.htf_confluent ? ' confluent' : ''}`;
+    const bottomInfo = `${s.fib_entry_pct}% Fib Zone`;
 
     return `
     <div class="${cardClass}" data-id="${s.id}">
@@ -127,27 +129,27 @@ const Watchlist = (() => {
         <div class="card-info">
           <div class="ticker-row">
             <span class="ticker">${s.ticker}</span>
-            <span class="setup-badge" ${badgeStyle}>${isMaster ? 'Master' : 'Setup ' + s.setup_id}</span>
+            <span class="setup-badge sb-${s.setup_id}">S${s.setup_id} · ${setupName}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="company-name">${s.ticker}</span>
-            <span class="sector-tag">${isMaster ? (s.master_tf_count + ' TF') : s.timeframe}</span>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span class="sector-tag">${s.timeframe}</span>
           </div>
           <div class="price-row">
-            <span class="price" id="price-${safeId(s.id)}">$${s.current_price.toFixed(2)}</span>
+            <span class="price" id="price-${safeId(s.id)}">$${(s.current_price ?? 0).toFixed(2)}</span>
             <span class="chg-pos" id="chg-${safeId(s.id)}">+0.00%</span>
           </div>
           <div class="meta-grid">${metaHTML}</div>
           <div class="rr-bar-wrap">
             <div class="rr-bar-label">
-              <span>${barLabel}</span>
-              <span style="color:${scoreColor}">${scoreLabel}</span>
+              <span>R/R Strength</span>
+              <span style="color:${rrColor}">${rr}R</span>
             </div>
             <div class="rr-bar">
-              <div class="rr-fill" style="width:${barWidth}%;background:${scoreColor}"></div>
+              <div class="rr-fill" style="width:${rrWidth}%;background:${rrColor}"></div>
             </div>
           </div>
           <div class="flag-row">${flags.join('')}</div>
+          ${patternHTML}
         </div>
         <div class="card-chart" id="chart-${safeId(s.id)}"
              onclick="Charts.openModal(App.getVisibleSetups().find(x=>x.id==='${s.id}'))"
@@ -158,8 +160,7 @@ const Watchlist = (() => {
         <div class="fib-info">${bottomInfo}</div>
         <div class="fib-pills">${pills}</div>
         <div class="card-actions">
-          <button class="card-btn cb-chart" onclick="event.stopPropagation();Charts.openModal(App.getVisibleSetups().find(x=>x.id==='${s.id}'))">+ Chart</button>
-          <button class="card-btn cb-trade" onclick="event.stopPropagation();Modals.openAddTrade(App.getVisibleSetups().find(x=>x.id==='${s.id}'))">+ Trade</button>
+          <button class="card-btn cb-chart" onclick="event.stopPropagation();Charts.openModal(App.getVisibleSetups().find(x=>x.id==='${s.id}'))">Expand Chart</button>
         </div>
       </div>
     </div>`;
@@ -198,6 +199,9 @@ const Watchlist = (() => {
         chgEl.className = chgPct >= 0 ? 'chg-pos' : 'chg-neg';
         chgEl.textContent = `${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%`;
       }
+
+      Charts.tickMini('chart-' + safeId(s.id), newPrice);
+      WatchlistPanel.tickPrice(s.id, newPrice, chgPct);
 
       lp.price = newPrice;
       lp.chgPct = chgPct;

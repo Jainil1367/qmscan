@@ -1,35 +1,27 @@
 /**
  * charts.js — TradingView Lightweight Charts v4
  *
- * Mini cards:  candlesticks + volume + time axis + ALL 8 structure lines
- * Modal chart: same + CHoCH arrow marker + live candle ticks + legend
- *
- * 8 price levels drawn:
- *   HH · CHoCH · HTF LQ · KEY LVL · FIB ENTRY · FIB SL · HH1 · STOP HUNT
- * + always: ENTRY · SL · TARGET
+ * Mini cards:  candlesticks + volume + time axis + ALL 8 lines
+ * Modal chart: full interactive (scroll/zoom/crosshair) + key level shading
+ *              + HH / CHoCH / HH1 timeline markers + legend
  */
 
 const Charts = (() => {
-  const CHART_BG    = '#0D1219';
-  const GRID_COLOR  = 'rgba(255,255,255,0.05)';
-  const TEXT_COLOR  = '#D0D8E8';   // was #6E7F99 — now readable white/silver
-  const UP_COLOR    = '#00D68F';
-  const DOWN_COLOR  = '#FF4560';
-  const VOL_UP      = 'rgba(0,214,143,0.25)';
-  const VOL_DOWN    = 'rgba(255,69,96,0.25)';
+  const CHART_BG   = '#0D1219';
+  const GRID_COLOR = 'rgba(255,255,255,0.05)';
+  const TEXT_COLOR = '#D0D8E8';
+  const UP_COLOR   = '#00D68F';
+  const DOWN_COLOR = '#FF4560';
+  const VOL_UP     = 'rgba(0,214,143,0.22)';
+  const VOL_DOWN   = 'rgba(255,69,96,0.22)';
 
-  const miniCharts = {};   // containerId → { chart, candleSeries, volSeries, ro }
-  let   modalChart      = null;
-  let   modalCandle     = null;
-  let   modalVolSeries  = null;
-  let   liveTickTimer   = null;
-  let   _lastLivePrice  = 0;
+  const miniCharts = {};
+  let modalChart = null, modalCandle = null, modalVol = null;
+  let liveTimer = null, _lastPrice = 0;
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-
+  // ── Helpers ─────────────────────────────────────────────────────────────
   function candles2lwc(candles) {
-    const seen = new Set();
-    const out  = [];
+    const seen = new Set(), out = [];
     for (const c of candles) {
       const t = Math.floor(new Date(c.t).getTime() / 1000);
       if (seen.has(t)) continue;
@@ -40,8 +32,7 @@ const Charts = (() => {
   }
 
   function candles2vol(candles) {
-    const seen = new Set();
-    const out  = [];
+    const seen = new Set(), out = [];
     for (const c of candles) {
       const t = Math.floor(new Date(c.t).getTime() / 1000);
       if (seen.has(t)) continue;
@@ -53,51 +44,106 @@ const Charts = (() => {
 
   function ok(v) { return typeof v === 'number' && isFinite(v) && v > 0; }
 
-  // ── Price lines — all 8 structure levels + entry/SL/target ─────────────────
-  // detail=false → mini (still draws all 8, just thinner)
-  // detail=true  → modal (thicker core lines)
-
+  // ── Price lines (all 8 structure levels) ────────────────────────────────
   function addSetupLines(series, setup, detail = false) {
     if (!series || !setup) return [];
-    const thin = detail ? 1 : 1;
-    const core = detail ? 2 : 1;
-
-    const swingHigh = setup.choch?.swing_high?.price;
-    const swingLow  = setup.choch?.swing_low?.price;
-    const broken    = setup.choch?.broken_level;
+    const thin = 1, core = detail ? 2 : 1;
+    const sh = setup.choch?.swing_high?.price;
+    const sl = setup.choch?.swing_low?.price;
+    const br = setup.choch?.broken_level;
 
     const lines = [
-      // Core trade levels
       { price: setup.entry,     color: '#00D68F', w: core, style: 0, title: 'ENTRY'     },
       { price: setup.stop_loss, color: '#FF4560', w: core, style: 1, title: 'SL'        },
       { price: setup.target,    color: '#60A5FA', w: core, style: 2, title: 'TARGET'    },
-      // Structure
-      ok(swingHigh) && { price: swingHigh,            color: '#F0F4FF', w: thin, style: 0, title: 'HH'        },
-      ok(broken)    && { price: broken,                color: '#A855F7', w: thin, style: 1, title: 'CHoCH'     },
+      ok(sh)  && { price: sh,                  color: '#F0F4FF', w: thin, style: 0, title: 'HH'        },
+      ok(br)  && { price: br,                  color: '#A855F7', w: thin, style: 1, title: 'CHoCH'     },
       ok(setup.htf_lq)        && { price: setup.htf_lq,        color: '#F472B6', w: thin, style: 2, title: 'HTF LQ'    },
       ok(setup.htf_key_level) && { price: setup.htf_key_level, color: '#FACC15', w: thin, style: 2, title: 'KEY LVL'   },
       ok(setup.hh1)           && { price: setup.hh1,           color: '#94A3B8', w: thin, style: 3, title: 'HH1'       },
       ok(setup.stop_hunt_level) && { price: setup.stop_hunt_level, color: '#FF8A65', w: thin, style: 3, title: 'STOP HUNT' },
-      // Fib labels (same prices as ENTRY/SL but labelled with fib %)
-      (ok(swingHigh) && ok(swingLow)) && { price: setup.entry,     color: '#34D399', w: thin, style: 2, title: `FIB ${setup.fib_entry_pct}%` },
-      (ok(swingHigh) && ok(swingLow)) && { price: setup.stop_loss, color: '#FB7185', w: thin, style: 2, title: 'FIB SL'   },
+      (ok(sh) && ok(sl)) && { price: setup.entry,     color: '#34D399', w: thin, style: 2, title: `FIB ${setup.fib_entry_pct}%` },
+      (ok(sh) && ok(sl)) && { price: setup.stop_loss, color: '#FB7185', w: thin, style: 2, title: 'FIB SL'    },
     ].filter(Boolean);
 
     lines.forEach(l => {
       try {
-        series.createPriceLine({
-          price: l.price, color: l.color,
-          lineWidth: l.w, lineStyle: l.style,
-          axisLabelVisible: true, title: l.title,
-        });
+        series.createPriceLine({ price: l.price, color: l.color, lineWidth: l.w,
+          lineStyle: l.style, axisLabelVisible: true, title: l.title });
       } catch (_) {}
     });
     return lines;
   }
 
-  // ── Legend (modal only) ──────────────────────────────────────────────────────
-  function renderLegend(lines) {
-    const el = document.getElementById('chart-legend');
+  // ── Key level shading (modal only) ──────────────────────────────────────
+  // LWC v4 doesn't support rectangle overlays natively; we simulate the
+  // key level zone by drawing two thin solid lines around the zone edges
+  // and a third semi-transparent one at midpoint — clearly visible as a band.
+  function addKeyLevelZone(series, setup) {
+    if (!series || !setup) return;
+    const keyLvl = setup.htf_key_level;
+    if (!ok(keyLvl)) return;
+
+    const zoneH = keyLvl * 1.003;   // 0.3% above
+    const zoneL = keyLvl * 0.997;   // 0.3% below
+    const mid   = (zoneH + zoneL) / 2;
+
+    [
+      { price: zoneH, title: '', color: 'rgba(250,204,21,0.5)', w: 1, style: 0 },
+      { price: mid,   title: 'KEY ZONE', color: 'rgba(250,204,21,0.9)', w: 1, style: 2 },
+      { price: zoneL, title: '', color: 'rgba(250,204,21,0.5)', w: 1, style: 0 },
+    ].forEach(l => {
+      try {
+        series.createPriceLine({ price: l.price, color: l.color, lineWidth: l.w,
+          lineStyle: l.style, axisLabelVisible: l.title !== '', title: l.title });
+      } catch (_) {}
+    });
+  }
+
+  // ── Timeline markers: HH, CHoCH, HH1 ───────────────────────────────────
+  function buildMarkers(setup, lwcData) {
+    if (!lwcData.length) return [];
+    const markers = [];
+    const firstTime = lwcData[0].time;
+    const lastTime  = lwcData[lwcData.length - 1].time;
+
+    // CHoCH marker — confirmed_at timestamp
+    const chochTs = setup.choch?.confirmed_at;
+    if (chochTs) {
+      const t = Math.floor(new Date(chochTs).getTime() / 1000);
+      if (t >= firstTime && t <= lastTime) {
+        markers.push({ time: t, position: 'belowBar', color: '#A855F7',
+          shape: 'arrowUp', text: 'CHoCH', size: 1 });
+      }
+    }
+
+    // HH — mark at the swing high candle closest to swing_high price
+    const shPrice = setup.choch?.swing_high?.price;
+    if (ok(shPrice)) {
+      const closest = lwcData.reduce((best, c) =>
+        Math.abs(c.high - shPrice) < Math.abs(best.high - shPrice) ? c : best, lwcData[0]);
+      markers.push({ time: closest.time, position: 'aboveBar', color: '#F0F4FF',
+        shape: 'arrowDown', text: 'HH', size: 1 });
+    }
+
+    // HH1 — mark at candle closest to hh1 price
+    if (ok(setup.hh1)) {
+      const c2 = lwcData.reduce((best, c) =>
+        Math.abs(c.high - setup.hh1) < Math.abs(best.high - setup.hh1) ? c : best, lwcData[0]);
+      if (c2.time !== markers.find(m => m.text === 'HH')?.time) {
+        markers.push({ time: c2.time, position: 'aboveBar', color: '#94A3B8',
+          shape: 'arrowDown', text: 'HH1', size: 1 });
+      }
+    }
+
+    // Sort markers by time (required by LWC)
+    markers.sort((a, b) => a.time - b.time);
+    return markers;
+  }
+
+  // ── Legend ───────────────────────────────────────────────────────────────
+  function renderLegend(lines, legendId = 'chart-legend') {
+    const el = document.getElementById(legendId);
     if (!el) return;
     el.innerHTML = lines.map(l => `
       <span class="legend-item">
@@ -107,106 +153,56 @@ const Charts = (() => {
       </span>`).join('');
   }
 
-  // ── Base chart options factory ───────────────────────────────────────────────
-  function baseOptions(w, h, showTime = false) {
-    return {
-      width: w, height: h,
-      layout: {
-        background: { type: 'solid', color: 'transparent' },
-        textColor: TEXT_COLOR,
-        fontSize: 9,
-      },
-      grid: {
-        vertLines: { color: GRID_COLOR },
-        horzLines: { color: GRID_COLOR },
-      },
-      rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { top: 0.08, bottom: 0.28 },  // room for volume pane
-        textColor: TEXT_COLOR,
-      },
-      timeScale: {
-        borderVisible: false,
-        visible: showTime,
-        timeVisible: showTime,
-        secondsVisible: false,
-        tickMarkFormatter: (t) => {
-          const d = new Date(t * 1000);
-          return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-        },
-      },
-      crosshair: { mode: 0 },
-      handleScroll: false,
-      handleScale: false,
-    };
-  }
-
-  // ── Mini charts ──────────────────────────────────────────────────────────────
+  // ── Mini charts ──────────────────────────────────────────────────────────
   function createMiniChart(containerId, setup) {
     const el = document.getElementById(containerId);
     if (!el) return;
-    const w = el.clientWidth || 380;
-    const h = el.clientHeight || 170;
-
     destroyMini(containerId);
 
     let chart, cSeries, vSeries;
     try {
-      const opts = baseOptions(w, h, true);   // time axis ON for mini cards
-      opts.crosshair = { mode: 0 };
-      chart = LightweightCharts.createChart(el, opts);
+      chart = LightweightCharts.createChart(el, {
+        width: el.clientWidth || 380,
+        height: el.clientHeight || 170,
+        layout: { background: { type: 'solid', color: 'transparent' }, textColor: TEXT_COLOR, fontSize: 9 },
+        grid: { vertLines: { color: GRID_COLOR }, horzLines: { color: GRID_COLOR } },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.28 }, textColor: TEXT_COLOR },
+        timeScale: { borderVisible: false, visible: true, timeVisible: true, secondsVisible: false, textColor: TEXT_COLOR },
+        crosshair: { mode: 0 },
+        handleScroll: false,
+        handleScale: false,
+      });
 
       cSeries = chart.addCandlestickSeries({
         upColor: UP_COLOR, downColor: DOWN_COLOR,
         borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
         wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
-        priceScaleId: 'right',
       });
-
-      vSeries = chart.addHistogramSeries({
-        priceFormat: { type: 'volume' },
-        priceScaleId: 'vol',
-        scaleMargins: { top: 0.8, bottom: 0 },
-      });
+      vSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
-      const candles = setup.candles || [];
-      const lwcData = candles.length ? candles2lwc(candles) : [];
-      const volData = candles.length ? candles2vol(candles) : [];
-
+      const lwcData = (setup.candles || []).length ? candles2lwc(setup.candles) : [];
+      const volData = (setup.candles || []).length ? candles2vol(setup.candles) : [];
       if (lwcData.length) {
         cSeries.setData(lwcData);
         vSeries.setData(volData);
-
-        // Live candle: update last bar with a slight drift so mini charts
-        // animate every 2 s while the card is visible.
-        const last = lwcData[lwcData.length - 1];
-        miniCharts[containerId] = miniCharts[containerId] || {};
-        miniCharts[containerId]._liveBase = last.close;
-        miniCharts[containerId]._liveTime = last.time;
+        chart.timeScale().fitContent();
       }
 
-      // All 8 structure lines on mini card
+      // All 8 lines on mini card
       addSetupLines(cSeries, setup, false);
 
-      if (lwcData.length) chart.timeScale().fitContent();
-
-    } catch (e) {
-      console.warn('Mini chart error', containerId, e);
-      return;
-    }
+    } catch (e) { console.warn('Mini chart error', containerId, e); return; }
 
     const ro = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        try { chart.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height }); } catch (_) {}
+      for (const e of entries) {
+        try { chart.applyOptions({ width: e.contentRect.width, height: e.contentRect.height }); } catch (_) {}
       }
     });
     ro.observe(el);
 
-    miniCharts[containerId] = { chart, cSeries, vSeries, ro, setup,
-      _liveBase: miniCharts[containerId]?._liveBase ?? setup.current_price,
-      _liveTime: miniCharts[containerId]?._liveTime ?? Math.floor(Date.now() / 1000),
-    };
+    const lastClose = (setup.candles || []).length ? setup.candles[setup.candles.length - 1].c : setup.current_price;
+    miniCharts[containerId] = { chart, cSeries, vSeries, ro, setup, _liveBase: lastClose };
   }
 
   function destroyMini(id) {
@@ -217,130 +213,100 @@ const Charts = (() => {
     delete miniCharts[id];
   }
 
-  // ── Mini live tick (called from Watchlist.tickPrices) ───────────────────────
   function tickMini(containerId, newPrice) {
     const mc = miniCharts[containerId];
     if (!mc || !mc.cSeries) return;
     const now = Math.floor(Date.now() / 1000);
     try {
-      mc.cSeries.update({ time: now, open: mc._liveBase, high: Math.max(mc._liveBase, newPrice),
-        low: Math.min(mc._liveBase, newPrice), close: newPrice });
+      mc.cSeries.update({ time: now, open: mc._liveBase,
+        high: Math.max(mc._liveBase, newPrice), low: Math.min(mc._liveBase, newPrice), close: newPrice });
       mc.vSeries?.update({ time: now, value: 0, color: newPrice >= mc._liveBase ? VOL_UP : VOL_DOWN });
     } catch (_) {}
   }
 
-  // ── Modal chart ──────────────────────────────────────────────────────────────
+  // ── Modal chart ──────────────────────────────────────────────────────────
   function openModal(setup) {
     if (!setup) return;
     const overlay   = document.getElementById('chart-modal');
     const container = document.getElementById('chart-container');
     if (!overlay || !container) return;
 
-    // Header
     document.getElementById('modal-ticker').textContent = setup.ticker;
     const badge = document.getElementById('modal-setup-badge');
-    badge.textContent = `Setup ${setup.setup_id}: ${setup.setup_name}`;
+    badge.textContent = `S${setup.setup_id} · ${setup.setup_name}`;
     badge.className = `modal-badge setup-badge sb-${setup.setup_id}`;
     document.getElementById('modal-tf').textContent = `[${setup.timeframe}]`;
 
-    // Data lag notice
     const lagEl = document.getElementById('modal-data-lag');
-    if (lagEl) {
-      const candles = setup.candles || [];
-      if (candles.length) {
-        const lastTs = new Date(candles[candles.length - 1].t + 'Z').getTime();
-        const lag = Math.round((Date.now() - lastTs) / 60000);
-        lagEl.textContent = `Data: ~${lag} min delayed (yfinance)`;
-      } else {
-        lagEl.textContent = 'Data: yfinance (~15 min delayed)';
-      }
+    if (lagEl && (setup.candles || []).length) {
+      const last = new Date(setup.candles[setup.candles.length-1].t + 'Z').getTime();
+      const lag  = Math.round((Date.now() - last) / 60000);
+      lagEl.textContent = `Data: ~${lag} min delayed`;
     }
 
-    // Meta row
     document.getElementById('modal-meta').innerHTML = `
       <div class="mm-card"><div class="mm-label">Price</div><div class="mm-val">$${setup.current_price.toFixed(2)}</div></div>
       <div class="mm-card"><div class="mm-label">Entry</div><div class="mm-val" style="color:var(--green)">$${setup.entry.toFixed(2)}</div></div>
-      <div class="mm-card"><div class="mm-label">Stop Loss</div><div class="mm-val" style="color:var(--red)">$${setup.stop_loss.toFixed(2)}</div></div>
+      <div class="mm-card"><div class="mm-label">SL</div><div class="mm-val" style="color:var(--red)">$${setup.stop_loss.toFixed(2)}</div></div>
       <div class="mm-card"><div class="mm-label">Target</div><div class="mm-val" style="color:#60A5FA">$${setup.target.toFixed(2)}</div></div>
       <div class="mm-card"><div class="mm-label">R/R</div><div class="mm-val" style="color:${setup.risk_reward>=3?'var(--green)':setup.risk_reward>=2?'var(--amber)':'var(--red)'}">${setup.risk_reward}R</div></div>
-      <div class="mm-card"><div class="mm-label">Fib Level</div><div class="mm-val">${setup.fib_entry_pct}%</div></div>
+      <div class="mm-card"><div class="mm-label">Fib</div><div class="mm-val">${setup.fib_entry_pct}%</div></div>
       <div class="mm-card"><div class="mm-label">HTF</div><div class="mm-val" style="color:${setup.htf_confluent?'var(--green)':'var(--red)'}">${setup.htf_trend} ${setup.htf_confluent?'[OK]':'[X]'}</div></div>
       <div class="mm-card"><div class="mm-label">OB</div><div class="mm-val" style="color:${setup.order_block?'var(--amber)':'#D0D8E8'}">${setup.order_block?'Present':'None'}</div></div>
     `;
 
-    // Teardown old
-    clearInterval(liveTickTimer);
-    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; modalCandle = null; modalVolSeries = null; }
+    clearInterval(liveTimer);
+    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; }
     container.innerHTML = '';
 
     try {
-      const opts = {
+      const chart = LightweightCharts.createChart(container, {
         width: container.clientWidth || 860,
         height: 440,
         layout: { background: { type: 'solid', color: CHART_BG }, textColor: TEXT_COLOR, fontSize: 11 },
         grid: { vertLines: { color: GRID_COLOR }, horzLines: { color: GRID_COLOR } },
-        rightPriceScale: {
-          borderVisible: false,
-          scaleMargins: { top: 0.08, bottom: 0.28 },
-          textColor: TEXT_COLOR,
-        },
-        timeScale: {
-          borderVisible: false,
-          timeVisible: true,
-          secondsVisible: false,
-          borderColor: '#1C2535',
-          textColor: TEXT_COLOR,
-        },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.28 }, textColor: TEXT_COLOR },
+        timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, textColor: TEXT_COLOR },
         crosshair: {
           mode: LightweightCharts.CrosshairMode.Normal,
           vertLine: { color: 'rgba(255,255,255,0.25)', style: 1, labelBackgroundColor: '#1C2535' },
           horzLine: { color: 'rgba(255,255,255,0.25)', style: 1, labelBackgroundColor: '#1C2535' },
         },
-      };
-
-      const chart = LightweightCharts.createChart(container, opts);
+        // Full interactivity for modal
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      });
 
       const cSeries = chart.addCandlestickSeries({
         upColor: UP_COLOR, downColor: DOWN_COLOR,
         borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
         wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
       });
-
-      const vSeries = chart.addHistogramSeries({
-        priceFormat: { type: 'volume' },
-        priceScaleId: 'vol',
-      });
+      const vSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
-      const candles = setup.candles || [];
-      const lwcData = candles.length ? candles2lwc(candles) : [];
-      const volData = candles.length ? candles2vol(candles) : [];
+      const lwcData = (setup.candles || []).length ? candles2lwc(setup.candles) : [];
+      const volData = (setup.candles || []).length ? candles2vol(setup.candles) : [];
 
       if (lwcData.length) {
         cSeries.setData(lwcData);
         vSeries.setData(volData);
 
-        // CHoCH arrow marker
-        const chochTs = setup.choch?.confirmed_at;
-        if (chochTs) {
-          const t = Math.floor(new Date(chochTs).getTime() / 1000);
-          try {
-            cSeries.setMarkers([{
-              time: t, position: 'belowBar',
-              color: '#A855F7', shape: 'arrowUp', text: 'CHoCH', size: 1,
-            }]);
-          } catch (_) {}
-        }
+        // Timeline markers
+        const markers = buildMarkers(setup, lwcData);
+        if (markers.length) { try { cSeries.setMarkers(markers); } catch (_) {} }
 
         chart.timeScale().fitContent();
-        _lastLivePrice = lwcData[lwcData.length - 1].close;
+        _lastPrice = lwcData[lwcData.length - 1].close;
       } else {
-        _lastLivePrice = setup.current_price;
+        _lastPrice = setup.current_price;
       }
 
-      // All 8 structure lines
+      // Structure lines
       const drawnLines = addSetupLines(cSeries, setup, true);
-      renderLegend(drawnLines);
+      // Key level zone shading
+      addKeyLevelZone(cSeries, setup);
+      renderLegend(drawnLines, 'chart-legend');
 
       new ResizeObserver(entries => {
         for (const e of entries) { try { chart.applyOptions({ width: e.contentRect.width }); } catch (_) {} }
@@ -348,113 +314,49 @@ const Charts = (() => {
 
       modalChart = chart;
       modalCandle = cSeries;
-      modalVolSeries = vSeries;
+      modalVol = vSeries;
 
-      // Live tick: extend the last candle forward in real time
-      _startLiveTick(setup);
+      // Live tick
+      liveTimer = setInterval(() => {
+        let p = _lastPrice;
+        p = Math.max(p * 0.97, p + (Math.random() - 0.495) * p * 0.0012);
+        const now = Math.floor(Date.now() / 1000);
+        try {
+          modalCandle.update({ time: now, open: _lastPrice,
+            high: Math.max(_lastPrice, p), low: Math.min(_lastPrice, p), close: p });
+          modalVol?.update({ time: now, value: Math.random() * 300000,
+            color: p >= _lastPrice ? VOL_UP : VOL_DOWN });
+        } catch (_) {}
+        _lastPrice = p;
+      }, 1500);
 
     } catch (e) { console.error('Modal chart error:', e); }
-
-    const btn = document.getElementById('btn-add-trade');
-    if (btn) btn.onclick = () => { closeModal(); Modals.openAddTrade(setup); };
 
     overlay.classList.add('open');
   }
 
-  function _startLiveTick(setup) {
-    let price = _lastLivePrice || setup.current_price;
-    liveTickTimer = setInterval(() => {
-      price = Math.max(price * 0.97, price + (Math.random() - 0.495) * price * 0.0012);
-      const now = Math.floor(Date.now() / 1000);
-      if (modalCandle) {
-        try {
-          const dir = price >= (_lastLivePrice || price);
-          modalCandle.update({ time: now, open: _lastLivePrice || price,
-            high: Math.max(_lastLivePrice || price, price),
-            low:  Math.min(_lastLivePrice || price, price), close: price });
-          modalVolSeries?.update({ time: now, value: Math.random() * 500000,
-            color: dir ? VOL_UP : VOL_DOWN });
-        } catch (_) {}
-      }
-      _lastLivePrice = price;
-    }, 1500);
-  }
-
   function closeModal() {
-    clearInterval(liveTickTimer);
-    const overlay = document.getElementById('chart-modal');
-    if (overlay) overlay.classList.remove('open');
-    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; modalCandle = null; modalVolSeries = null; }
+    clearInterval(liveTimer);
+    const ov = document.getElementById('chart-modal');
+    if (ov) ov.classList.remove('open');
+    if (modalChart) { try { modalChart.remove(); } catch (_) {} modalChart = null; modalCandle = null; modalVol = null; }
     const legend = document.getElementById('chart-legend');
     if (legend) legend.innerHTML = '';
     const lag = document.getElementById('modal-data-lag');
     if (lag) lag.textContent = '';
   }
 
-  return { createMiniChart, destroyMini, tickMini, openModal, closeModal };
+  return { createMiniChart, destroyMini, tickMini, openModal, closeModal, candles2lwc, candles2vol, buildMarkers, addSetupLines, addKeyLevelZone };
 })();
 
 // ── Modals ───────────────────────────────────────────────────────────────────
 const Modals = (() => {
-  let currentSetup = null;
-
   function closeChart(event) {
     if (event && event.target !== document.getElementById('chart-modal')) return;
     Charts.closeModal();
   }
   function closeChartDirect() { Charts.closeModal(); }
-
-  function openAddTrade(setup) {
-    if (!setup) return;
-    currentSetup = setup;
-    document.getElementById('at-ticker').textContent =
-      `${setup.ticker} — Setup ${setup.setup_id} (${setup.setup_name})`;
-    updateSummary();
-    document.getElementById('at-account').oninput = updateSummary;
-    document.getElementById('at-risk').oninput    = updateSummary;
-    document.getElementById('at-confirm').onclick = confirmTrade;
-    document.getElementById('addtrade-modal').classList.add('open');
-  }
-
-  function updateSummary() {
-    if (!currentSetup) return;
-    const account    = parseFloat(document.getElementById('at-account').value) || 10000;
-    const riskPct    = parseFloat(document.getElementById('at-risk').value)    || 1;
-    const riskAmt    = account * riskPct / 100;
-    const riskPerSh  = currentSetup.entry - currentSetup.stop_loss;
-    const shares     = riskPerSh > 0 ? (riskAmt / riskPerSh).toFixed(1) : 0;
-    const potWin     = (currentSetup.target - currentSetup.entry) * shares;
-    document.getElementById('at-summary').innerHTML = `
-      Entry: <strong>$${currentSetup.entry.toFixed(2)}</strong> |
-      Stop: <strong style="color:var(--red)">$${currentSetup.stop_loss.toFixed(2)}</strong> |
-      Target: <strong style="color:var(--green)">$${currentSetup.target.toFixed(2)}</strong><br>
-      Risk: <strong>$${riskAmt.toFixed(2)}</strong> |
-      Shares: <strong>${shares}</strong> |
-      Potential P&L: <strong style="color:var(--green)">+$${potWin.toFixed(2)}</strong><br>
-      R/R: <strong>${currentSetup.risk_reward}R</strong>
-    `;
-  }
-
-  async function confirmTrade() {
-    if (!currentSetup) return;
-    const result = await App.fetchJSON('/api/trades', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        setup_id:    currentSetup.id,
-        account_size: parseFloat(document.getElementById('at-account').value) || 10000,
-        risk_pct:    parseFloat(document.getElementById('at-risk').value)    || 1,
-        notes:       document.getElementById('at-notes').value,
-      }),
-    });
-    if (result) { closeAddTrade(null, true); App.openPanel('tradelog'); }
-  }
-
-  function closeAddTrade(event, force = false) {
-    if (!force && event && event.target !== document.getElementById('addtrade-modal')) return;
-    document.getElementById('addtrade-modal').classList.remove('open');
-    currentSetup = null;
-  }
-
+  function openAddTrade() {}     // removed
+  function closeAddTrade() {}    // removed
   return { closeChart, closeChartDirect, openAddTrade, closeAddTrade };
 })();
