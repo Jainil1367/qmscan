@@ -233,4 +233,3 @@ class YFinanceClient:
             self._session.close()
         except Exception:
             pass
-
