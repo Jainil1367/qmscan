@@ -80,11 +80,21 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         try:
             # Send current state immediately on connect
             await websocket.send_json(scanner.get_state())
-            # Keep alive
+            # Keep-alive ping loop
             while True:
                 await asyncio.sleep(30)
-                await websocket.send_json({"type": "ping"})
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    # Client disconnected between pings — exit cleanly
+                    break
         except WebSocketDisconnect:
+            pass
+        except Exception:
+            # Catches RuntimeError("send after close"), ConnectionResetError, etc.
+            pass
+        finally:
+            # Always remove from manager, even on unexpected errors
             ws_manager.disconnect(websocket)
 
     # ── Watchlist ─────────────────────────────────────────────────────────────
@@ -232,7 +242,10 @@ class ConnectionManager:
         logger.info(f"WS client connected ({len(self.active)} total)")
 
     def disconnect(self, ws: WebSocket):
-        self.active.remove(ws)
+        try:
+            self.active.remove(ws)
+        except ValueError:
+            pass   # already removed by broadcast's dead-cleanup
         logger.info(f"WS client disconnected ({len(self.active)} remaining)")
 
     async def broadcast(self, data: dict):
@@ -244,4 +257,3 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.active.remove(ws)
-
