@@ -39,6 +39,10 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       History
     </button>
+    <button class="hdr-btn hdr-btn-bt" onclick="Backtest.open()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Backtest
+    </button>
     <button class="hdr-btn" onclick="App.rescan()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       Rescan
@@ -203,5 +207,65 @@
 <script src="/static/js/float_chart.js"></script>
 <script src="/static/js/watchlist_panel.js"></script>
 <script src="/static/js/history.js"></script>
+<script src="/static/js/backtest.js"></script>
+
+<!-- ── Backtest Panel ─────────────────────────────────────────────────────── -->
+<div class="bt-panel" id="bt-panel">
+  <div class="bt-panel-inner">
+    <!-- Header -->
+    <div class="bt-header">
+      <div class="bt-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B8BD4" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Strategy Backtester
+        <span class="bt-subtitle">ICT Fibonacci Setups · NASDAQ-100 · 5 Year Walk-Forward</span>
+      </div>
+      <button class="modal-close" onclick="Backtest.close()">X</button>
+    </div>
+
+    <!-- Config bar -->
+    <div class="bt-config-bar">
+      <div class="bt-config-group">
+        <label class="bt-label">Timeframes</label>
+        <div class="bt-tf-checks">
+          <label><input type="checkbox" class="bt-tf-check" value="1H" checked> 1H</label>
+          <label><input type="checkbox" class="bt-tf-check" value="4H" checked> 4H</label>
+          <label><input type="checkbox" class="bt-tf-check" value="1D" checked> 1D</label>
+          <label><input type="checkbox" class="bt-tf-check" value="1W" checked> 1W</label>
+        </div>
+      </div>
+      <div class="bt-config-group">
+        <label class="bt-label">Max Tickers</label>
+        <select id="bt-max-tickers" class="sort-btn" style="height:28px;padding:0 8px">
+          <option value="10">10 (fast)</option>
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100 (slow)</option>
+        </select>
+      </div>
+      <div class="bt-config-group">
+        <label class="bt-label">Custom Tickers <span style="color:var(--text2)">(comma separated, overrides max)</span></label>
+        <input type="text" id="bt-tickers" class="filter-input" placeholder="e.g. AAPL,TSLA,NVDA" style="width:280px">
+      </div>
+      <div class="bt-config-group" style="align-self:flex-end;flex-direction:row;gap:8px">
+        <button id="bt-run-btn" class="bt-run-btn" onclick="Backtest.run()">Run Backtest</button>
+        <button id="bt-cancel-btn" class="bt-cancel-btn" onclick="Backtest.cancel()" disabled>Cancel</button>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="bt-progress-wrap">
+      <div class="bt-progress-bar"><div id="bt-progress-fill" class="bt-progress-fill" style="width:0%"></div></div>
+      <div id="bt-status-msg" class="bt-status-msg">Ready. Configure settings and click Run Backtest.</div>
+    </div>
+
+    <!-- Results area -->
+    <div class="bt-body">
+      <!-- Equity curve always-visible container -->
+      <div id="bt-eq-container"></div>
+      <!-- All other results rendered here -->
+      <div id="bt-results"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

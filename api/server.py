@@ -49,6 +49,10 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
     # WebSocket connection manager
     ws_manager = ConnectionManager()
 
+    # Backtest engine (singleton per server lifetime)
+    from backtesting.engine import BacktestEngine
+    bt_engine = BacktestEngine(data_client=scanner.data_client)
+
     # Wire scanner and alerts → WebSocket broadcast
     async def on_watchlist_update(state: dict):
         await ws_manager.broadcast(state)
@@ -215,6 +219,41 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         )
         return {"history": rows, "count": len(rows)}
 
+    # ── Backtesting ───────────────────────────────────────────────────────────
+    class BacktestRunBody(BaseModel):
+        tickers: list[str] = []
+        timeframes: list[str] = ["1H", "4H", "1D", "1W"]
+        years: int = 5
+        max_tickers: int = 50
+
+    @app.post("/api/backtest/run")
+    async def run_backtest(body: BacktestRunBody):
+        if bt_engine._running:
+            return {"started": False, "message": "Backtest already running"}
+        from backtesting.universe import get_bt_universe
+        tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
+        tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")]
+        if not tfs:
+            tfs = ["1H", "4H", "1D", "1W"]
+        ok = bt_engine.start(tickers=tickers, timeframes=tfs, years=body.years)
+        return {"started": ok, "tickers": len(tickers), "timeframes": tfs}
+
+    @app.post("/api/backtest/cancel")
+    async def cancel_backtest():
+        bt_engine.cancel()
+        return {"cancelled": True}
+
+    @app.get("/api/backtest/status")
+    async def backtest_status():
+        return bt_engine.get_status()
+
+    @app.get("/api/backtest/results")
+    async def backtest_results():
+        r = bt_engine.get_results()
+        if r is None:
+            raise HTTPException(404, "No backtest results available. Run a backtest first.")
+        return r
+
     # ── Status ────────────────────────────────────────────────────────────────
     @app.get("/api/status")
     async def status():
@@ -257,3 +296,4 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.active.remove(ws)
+
