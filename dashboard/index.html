@@ -201,14 +201,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js"></script>
-<script src="/static/js/charts.js"></script>
-<script src="/static/js/watchlist.js"></script>
-<script src="/static/js/float_chart.js"></script>
-<script src="/static/js/watchlist_panel.js"></script>
-<script src="/static/js/history.js"></script>
-<script src="/static/js/backtest.js"></script>
-
 <!-- ── Backtest Panel ─────────────────────────────────────────────────────── -->
 <div class="bt-panel" id="bt-panel">
   <div class="bt-panel-inner">
@@ -217,7 +209,7 @@
       <div class="bt-title">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B8BD4" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Strategy Backtester
-        <span class="bt-subtitle">ICT Fibonacci Setups · NASDAQ-100 · 5 Year Walk-Forward</span>
+        <span class="bt-subtitle">ICT Fibonacci Setups · NASDAQ-100 · Walk-Forward</span>
       </div>
       <button class="modal-close" onclick="Backtest.close()">X</button>
     </div>
@@ -236,14 +228,14 @@
       <div class="bt-config-group">
         <label class="bt-label">Max Tickers</label>
         <select id="bt-max-tickers" class="sort-btn" style="height:28px;padding:0 8px">
-          <option value="10">10 (fast)</option>
-          <option value="25">25</option>
-          <option value="50" selected>50</option>
-          <option value="100">100 (slow)</option>
+          <option value="10">10 (fast ~2min)</option>
+          <option value="25">25 (~5min)</option>
+          <option value="50" selected>50 (~10min)</option>
+          <option value="100">100 (~20min)</option>
         </select>
       </div>
       <div class="bt-config-group">
-        <label class="bt-label">Custom Tickers <span style="color:var(--text2)">(comma separated, overrides max)</span></label>
+        <label class="bt-label">Custom Tickers <span style="color:var(--text2)">(comma separated, blank = NASDAQ-100)</span></label>
         <input type="text" id="bt-tickers" class="filter-input" placeholder="e.g. AAPL,TSLA,NVDA" style="width:280px">
       </div>
       <div class="bt-config-group" style="align-self:flex-end;flex-direction:row;gap:8px">
@@ -260,12 +252,18 @@
 
     <!-- Results area -->
     <div class="bt-body">
-      <!-- Equity curve always-visible container -->
       <div id="bt-eq-container"></div>
-      <!-- All other results rendered here -->
       <div id="bt-results"></div>
     </div>
   </div>
 </div>
+
+<script src="/static/js/app.js"></script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/watchlist.js"></script>
+<script src="/static/js/float_chart.js"></script>
+<script src="/static/js/watchlist_panel.js"></script>
+<script src="/static/js/history.js"></script>
+<script src="/static/js/backtest.js"></script>
 </body>
 </html>

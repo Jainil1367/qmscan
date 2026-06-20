@@ -25,12 +25,28 @@ const Backtest = (() => {
 
   // ── Open / Close panel ────────────────────────────────────────────────────
   function open() {
-    document.getElementById('bt-panel').classList.add('open');
-    _pollStatus();
+    const panel = document.getElementById('bt-panel');
+    if (!panel) {
+      console.error('bt-panel element not found in DOM');
+      return;
+    }
+    panel.classList.add('open');
+    // Only poll if a run is already in progress (don't auto-poll on fresh open)
+    App.fetchJSON('/api/backtest/status').then(data => {
+      if (!data) return;
+      _setStatus(data.message || 'Ready.', data.progress || 0);
+      if (data.status === 'running') {
+        _setRunning(true);
+        _startPolling();
+      } else if (data.status === 'done' && data.has_results) {
+        _loadResults();
+      }
+    });
   }
 
   function close() {
-    document.getElementById('bt-panel').classList.remove('open');
+    const panel = document.getElementById('bt-panel');
+    if (panel) panel.classList.remove('open');
     clearInterval(_pollTimer);
   }
 
