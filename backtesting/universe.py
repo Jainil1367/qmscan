@@ -18,4 +18,3 @@ NASDAQ_100 = [
 
 def get_bt_universe(size: int = 100) -> list[str]:
     return NASDAQ_100[:size]
-

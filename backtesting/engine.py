@@ -360,4 +360,3 @@ class BacktestEngine:
             "exit_date":      t.exit_date,
             "candle_patterns":t.candle_patterns,
         }
-
