@@ -170,41 +170,70 @@ class BacktestEngine:
             self._running = False
 
     async def _fetch_5y(self, ticker: str, tf: str) -> list[Candle]:
-        """Fetch 5 years of data, bypassing the normal TTL cache."""
-        import yfinance as yf
+        """
+        Fetch max available data for backtesting.
+        Uses yf.Ticker.history() with the browser session — same as live scanner.
+        Compatible with all yfinance versions >= 0.1.
+        """
         import pandas as pd
 
         interval = "1h" if tf in ("1H", "4H") else ("1d" if tf == "1D" else "1wk")
-        # yfinance max for hourly is 730 days; use max period
+        # yfinance hard cap: hourly data only available for last 730 days
         period = "730d" if tf in ("1H", "4H") else "5y"
 
-        df = await asyncio.to_thread(
-            yf.download, ticker, period=period, interval=interval,
-            progress=False, auto_adjust=True, multi_level_index=False,
-        )
-        if df is None or df.empty:
+        try:
+            # Use the same client session as the live scanner (browser UA, throttle, retry)
+            candles = await self.data_client.get_bars(ticker, tf if tf != "4H" else "1H", limit=5000)
+
+            # If we got candles from cache/client, use them
+            # But for BT we want max history — call yfinance directly with longer period
+            import yfinance as yf
+            session = getattr(self.data_client, '_session', None)
+
+            if session:
+                tkr = yf.Ticker(ticker, session=session)
+            else:
+                tkr = yf.Ticker(ticker)
+
+            df = await asyncio.to_thread(
+                tkr.history,
+                period=period,
+                interval=interval,
+                auto_adjust=True,
+            )
+
+            if df is None or df.empty:
+                return []
+
+            # Flatten MultiIndex columns if present (some yfinance versions do this)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            raw = []
+            for ts, row in df.iterrows():
+                try:
+                    dt = ts.to_pydatetime()
+                    if dt.tzinfo is not None:
+                        dt = dt.replace(tzinfo=None)
+                    o = float(row.get("Open",  row.get("open",  0)) or 0)
+                    h = float(row.get("High",  row.get("high",  0)) or 0)
+                    l = float(row.get("Low",   row.get("low",   0)) or 0)
+                    c = float(row.get("Close", row.get("close", 0)) or 0)
+                    v = float(row.get("Volume",row.get("volume",0)) or 0)
+                    if o <= 0 or h <= 0 or l <= 0 or c <= 0:
+                        continue
+                    raw.append(Candle(timestamp=dt, open=o, high=h, low=l, close=c, volume=v, vwap=0.0))
+                except Exception:
+                    continue
+
+            if tf == "4H" and raw:
+                raw = self.data_client._resample_4h(raw)
+
+            return raw
+
+        except Exception as e:
+            logger.warning(f"_fetch_5y failed for {ticker}/{tf}: {e}")
             return []
-
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        from core.models import Candle as C
-        raw = []
-        for ts, row in df.iterrows():
-            raw.append(C(
-                timestamp=ts.to_pydatetime().replace(tzinfo=None),
-                open=float(row["Open"]),
-                high=float(row["High"]),
-                low=float(row["Low"]),
-                close=float(row["Close"]),
-                volume=float(row.get("Volume", 0)),
-                vwap=0.0,
-            ))
-
-        if tf == "4H" and raw:
-            raw = self.data_client._resample_4h(raw)
-
-        return raw
 
     def _backtest_series(
         self, ticker: str, tf: str, candles: list[Candle]

@@ -52,6 +52,8 @@ var Backtest = (function() {
 
     setRunning(true);
     clearResults();
+    var msgEl = document.getElementById('bt-status-msg');
+    if (msgEl) { msgEl.style.color = ''; }   // reset any red error color
 
     fetch('/api/backtest/run', {
       method: 'POST',
@@ -91,13 +93,23 @@ var Backtest = (function() {
         } else if (d.status === 'done') {
           clearInterval(_pollTimer); _pollTimer = null;
           setRunning(false);
+          setProgress(100);
           if (d.has_results) loadResults();
         } else if (d.status === 'error') {
           clearInterval(_pollTimer); _pollTimer = null;
           setRunning(false);
+          setProgress(0);
+          // Show error visibly in red
+          var msgEl = document.getElementById('bt-status-msg');
+          if (msgEl) { msgEl.textContent = 'ERROR: ' + (d.message || 'Unknown error'); msgEl.style.color = '#FF4560'; }
+        } else {
+          // idle - stop polling
+          if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+          setRunning(false);
+          if (d.has_results) loadResults();
         }
       })
-      .catch(function(){});
+      .catch(function(e){ console.warn('[Backtest] poll error:', e); });
   }
 
   /* ── Load results ── */
