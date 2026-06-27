@@ -79,7 +79,10 @@ var Backtest = (function() {
   /* ── Polling ── */
   function startPoll() {
     if (_pollTimer) clearInterval(_pollTimer);
-    _pollTimer = setInterval(poll, 2000);
+    // Poll every 5 seconds — frequent enough to feel live, not hammering the server
+    _pollTimer = setInterval(poll, 5000);
+    // Also poll immediately once
+    poll();
   }
 
   function poll() {
@@ -88,40 +91,48 @@ var Backtest = (function() {
       .then(function(d){
         setMsg(d.message || '');
         setProgress(d.progress || 0);
+
         if (d.status === 'running') {
           setRunning(true);
+          // Show partial results as they arrive — don't wait for completion
+          if (d.has_results) loadResults(true);
+
         } else if (d.status === 'done') {
           clearInterval(_pollTimer); _pollTimer = null;
           setRunning(false);
           setProgress(100);
-          if (d.has_results) loadResults();
+          loadResults(false);
+
         } else if (d.status === 'error') {
           clearInterval(_pollTimer); _pollTimer = null;
           setRunning(false);
           setProgress(0);
-          // Show error visibly in red
           var msgEl = document.getElementById('bt-status-msg');
-          if (msgEl) { msgEl.textContent = 'ERROR: ' + (d.message || 'Unknown error'); msgEl.style.color = '#FF4560'; }
+          if (msgEl) {
+            msgEl.textContent = 'ERROR: ' + (d.message || 'Unknown error. Check Render logs.');
+            msgEl.style.color = '#FF4560';
+          }
+
         } else {
-          // idle - stop polling
+          // idle
           if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
           setRunning(false);
-          if (d.has_results) loadResults();
+          if (d.has_results) loadResults(false);
         }
       })
       .catch(function(e){ console.warn('[Backtest] poll error:', e); });
   }
 
   /* ── Load results ── */
-  function loadResults() {
+  function loadResults(isPartial) {
     fetch('/api/backtest/results')
       .then(function(r){ return r.json(); })
       .then(function(d){
         _allTrades = d.trades || [];
         _trades    = _allTrades.slice();
-        renderAll(d);
+        renderAll(d, isPartial);
       })
-      .catch(function(e){ setMsg('Results error: ' + e); });
+      .catch(function(e){ console.warn('[Backtest] results error:', e); });
   }
 
   /* ── UI helpers ── */
@@ -146,12 +157,25 @@ var Backtest = (function() {
   }
 
   /* ── Render all ── */
-  function renderAll(data) {
+  function renderAll(data, isPartial) {
     var container = document.getElementById('bt-results');
     if (!container) return;
     container.innerHTML = '';
 
     var m = data.metrics || {};
+
+    // Partial results banner
+    if (isPartial) {
+      var banner = mk('div');
+      banner.style.cssText = 'background:rgba(59,139,212,0.12);border:1px solid rgba(59,139,212,0.3);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:11px;color:#85B7EB;';
+      banner.textContent = 'Partial results — scan still running. Dashboard updates every 10s.';
+      container.appendChild(banner);
+    } else if (data.elapsed_sec) {
+      var info = mk('div');
+      info.style.cssText = 'background:rgba(0,214,143,0.08);border:1px solid rgba(0,214,143,0.2);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:11px;color:#00D68F;';
+      info.textContent = 'Completed in ' + data.elapsed_sec + 's — ' + (data.trade_count || 0) + ' total trades across ' + (data.tickers_scanned || 0) + ' tickers.';
+      container.appendChild(info);
+    }
 
     renderKPIs(container, m);
     renderEquity(container, m.equity_curve || []);
