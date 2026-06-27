@@ -5,9 +5,9 @@
 const App = (() => {
   // ── State ────────────────────────────────────────────────────────────────
   let state = {
-    watchlist: { '15m': [], '1H': [], '1D': [], '1W': [], 'master': [] },
+    watchlist: { '1H': [], '4H': [], '1D': [], '1W': [] },
     alerts: [],
-    currentTF: '15m',
+    currentTF: '1H',
     filterText: '',
     sortMode: 'rr',
     htfOnly: false,
@@ -15,7 +15,7 @@ const App = (() => {
     scanCount: 0,
     lastScan: null,
     unreadAlerts: 0,
-    countdown: 60,
+    countdown: 90,
   };
 
   let ws = null;
@@ -58,7 +58,11 @@ const App = (() => {
     if (msg.type === 'watchlist_update') {
       state.watchlist = msg.watchlist || {};
       state.scanCount = msg.scan_count || 0;
-      state.lastScan = msg.last_scan ? new Date(msg.last_scan) : null;
+      if (msg.last_scan) {
+        const ts = msg.last_scan.endsWith('Z') ? msg.last_scan : msg.last_scan + 'Z';
+        state.lastScan = new Date(ts);
+      }
+      state.countdown = msg.scan_interval || 90;
       resetCountdown();
       updateStats();
       Watchlist.render();
@@ -84,7 +88,6 @@ const App = (() => {
 
   // ── Countdown ────────────────────────────────────────────────────────────
   function resetCountdown() {
-    state.countdown = 60;
     clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
       state.countdown = Math.max(0, state.countdown - 1);
@@ -126,7 +129,6 @@ const App = (() => {
       if (state.obOnly && !s.order_block) return false;
       return true;
     }).sort((a, b) => {
-      if (state.currentTF === 'master') return (b.master_score || 0) - (a.master_score || 0);
       if (state.sortMode === 'rr') return b.risk_reward - a.risk_reward;
       if (state.sortMode === 'setup') return a.setup_id - b.setup_id;
       if (state.sortMode === 'fib') return b.fib_entry_pct - a.fib_entry_pct;

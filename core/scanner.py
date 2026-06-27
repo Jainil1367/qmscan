@@ -15,7 +15,6 @@ from detectors.choch import detect_choch
 from detectors.fibonacci import analyze_fib_setup
 from detectors.order_block import find_ob_at_price
 from detectors.htf_confluence import check_htf_confluence, get_htf_timeframe
-from detectors.master_setup import evaluate_master_setup
 
 logger = logging.getLogger("qmscan.scanner")
 
@@ -36,9 +35,8 @@ class Scanner:
         self.universe = universe
         self.timeframes = timeframes or list(TIMEFRAMES.keys())
 
-        # Watchlist: per-timeframe + master
+        # Watchlist: per-timeframe only (no master)
         self.watchlist: dict[str, list] = {tf: [] for tf in self.timeframes}
-        self.watchlist["master"] = []
 
         self._running = False
         self._scan_count = 0
@@ -58,17 +56,11 @@ class Scanner:
     async def run_full_scan(self):
         logger.info(f"Scan #{self._scan_count + 1} starting...")
         new_watchlist: dict[str, list] = {tf: [] for tf in self.timeframes}
-        new_watchlist["master"] = []
-
-        # Per-ticker results for master setup evaluation
-        ticker_tf_setups: dict[str, dict[str, Optional[DetectedSetup]]] = {
-            ticker: {} for ticker in self.universe
-        }
 
         tasks = []
         for timeframe in self.timeframes:
             for ticker in self.universe:
-                tasks.append(self._scan_symbol(ticker, timeframe, new_watchlist, ticker_tf_setups))
+                tasks.append(self._scan_symbol(ticker, timeframe, new_watchlist))
 
         from core.config import SCAN_BATCH_SIZE, SCAN_BATCH_DELAY
         for i in range(0, len(tasks), SCAN_BATCH_SIZE):
@@ -76,26 +68,12 @@ class Scanner:
             if i + SCAN_BATCH_SIZE < len(tasks):
                 await asyncio.sleep(SCAN_BATCH_DELAY)
 
-        # ── Master Setup pass ─────────────────────────────────────────────
-        for ticker, tf_setups in ticker_tf_setups.items():
-            master = evaluate_master_setup(ticker, tf_setups)
-            if master:
-                new_watchlist["master"].append(master)
-                logger.info(
-                    f"  [MASTER] {ticker} score={master.score} "
-                    f"tfs={master.timeframes_str}"
-                )
-                await self.alert_engine.emit_master(master)
-
-        # Sort master by score descending
-        new_watchlist["master"].sort(key=lambda m: m.score, reverse=True)
-
         self.watchlist = new_watchlist
         self._scan_count += 1
         self._last_scan = datetime.utcnow()
 
         total = sum(len(v) for v in new_watchlist.values())
-        logger.info(f"Scan #{self._scan_count} complete — {total} setups found ({len(new_watchlist['master'])} master)")
+        logger.info(f"Scan #{self._scan_count} complete — {total} setups found")
 
         if self.on_watchlist_update:
             await self.on_watchlist_update(self.get_state())
@@ -105,7 +83,6 @@ class Scanner:
         ticker: str,
         timeframe: str,
         result_dict: dict,
-        ticker_tf_setups: dict,
     ):
         try:
             tf_config = TIMEFRAMES[timeframe]
@@ -159,7 +136,6 @@ class Scanner:
             setup.candle_patterns = detect_patterns(candles)
 
             result_dict[timeframe].append(setup)
-            ticker_tf_setups[ticker][timeframe] = setup  # feed into master
 
             if self.trade_store:
                 try:
@@ -179,21 +155,18 @@ class Scanner:
             logger.debug(f"  [X] {ticker} [{timeframe}] error: {e}")
 
     def get_state(self) -> dict:
-        watchlist_data = {}
-        for tf, setups in self.watchlist.items():
-            if tf == "master":
-                watchlist_data["master"] = [m.to_dict() for m in setups]
-            else:
-                watchlist_data[tf] = [s.to_dict() for s in setups]
-
+        watchlist_data = {
+            tf: [s.to_dict() for s in setups]
+            for tf, setups in self.watchlist.items()
+        }
         total = sum(len(v) for v in self.watchlist.values())
         return {
-            "type": "watchlist_update",
-            "scan_count": self._scan_count,
-            "last_scan": self._last_scan.isoformat() if self._last_scan else None,
+            "type":          "watchlist_update",
+            "scan_count":    self._scan_count,
+            "last_scan":     self._last_scan.isoformat() if self._last_scan else None,
             "scan_interval": SCAN_INTERVAL,
-            "total_setups": total,
-            "watchlist": watchlist_data,
+            "total_setups":  total,
+            "watchlist":     watchlist_data,
         }
 
     def get_setup_by_id(self, setup_id: str) -> Optional[DetectedSetup]:
@@ -203,4 +176,3 @@ class Scanner:
                 if sid == setup_id:
                     return s if hasattr(s, 'to_dict') else s.best_setup
         return None
-
