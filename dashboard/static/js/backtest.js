@@ -13,17 +13,26 @@ var Backtest = (function() {
   /* ── Open ── */
   function open() {
     var p = document.getElementById('bt-panel');
-    if (!p) { alert('Backtest panel not found. Please hard-refresh the page (Ctrl+Shift+R).'); return; }
+    if (!p) { alert('Backtest panel not found. Please hard-refresh (Ctrl+Shift+R).'); return; }
     p.style.display = 'flex';
     fetch('/api/backtest/status')
       .then(function(r){ return r.json(); })
       .then(function(d){
-        setMsg(d.message || 'Ready.');
         setProgress(d.progress || 0);
-        if (d.status === 'running') { setRunning(true); startPoll(); }
-        else if (d.status === 'done' && d.has_results) { loadResults(); }
+        if (d.status === 'running') {
+          setRunning(true);
+          setMsg(d.message || 'Running...');
+          startPoll();
+          if (d.has_results) loadResults(true);
+        } else if (d.has_results) {
+          // Results exist from any previous run — show them right away
+          setMsg(d.message || 'Results loaded from previous run.');
+          loadResults(false);
+        } else {
+          setMsg('Ready. Choose your settings and click Run Backtest.');
+        }
       })
-      .catch(function(){});
+      .catch(function(){ setMsg('Ready. Choose your settings and click Run Backtest.'); });
   }
 
   /* ── Close ── */
