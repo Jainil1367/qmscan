@@ -61,27 +61,27 @@ class SetupConfig:
 SETUPS: dict[int, SetupConfig] = {
     1: SetupConfig(
         id=1, name="Impulsive Move", short="Impulsive",
-        entry_fib_min=0.35, entry_fib_max=0.45, sl_fib=0.618,
+        entry_fib_min=0.35, entry_fib_max=0.42, sl_fib=0.618,
         color="#0ea5e9",
-        description="Fast retracement to 38.2% after strong impulsive move with CHoCH.",
+        description="Fast snap to 38.2%. Strong impulsive move required. Highest velocity, lowest R/R.",
     ),
     2: SetupConfig(
         id=2, name="Typical Correction", short="Typical",
-        entry_fib_min=0.45, entry_fib_max=0.72, sl_fib=0.886,
+        entry_fib_min=0.50, entry_fib_max=0.65, sl_fib=0.886,
         color="#a855f7",
-        description="Standard pullback to 50-61.8% zone. Most common setup.",
+        description="50–61.8% retracement. Most common ICT setup. Good R/R with tight SL at 88.6%.",
     ),
     3: SetupConfig(
         id=3, name="Golden Zone", short="Golden",
-        entry_fib_min=0.72, entry_fib_max=0.84, sl_fib=1.13,
+        entry_fib_min=0.75, entry_fib_max=0.82, sl_fib=1.13,
         requires_ob=True, color="#f59e0b",
-        description="Deep retracement to 78.6% with Order Block confluence. Best R/R.",
+        description="78.6% golden pocket. Requires Order Block confluence. Highest probability setup.",
     ),
     4: SetupConfig(
         id=4, name="Deep Correction", short="Deep",
-        entry_fib_min=0.84, entry_fib_max=0.95, sl_fib=1.13,
+        entry_fib_min=0.84, entry_fib_max=0.92, sl_fib=1.13,
         stop_hunt_risk=True, color="#ef4444",
-        description="88.6% retracement — stop hunt below structure likely before reversal.",
+        description="88.6% retracement. Stop hunt below swing low likely before reversal. Wide SL.",
     ),
 }
 
