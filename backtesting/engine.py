@@ -166,18 +166,32 @@ class BacktestEngine:
             return []
 
     async def _download_direct(self, ticker: str, tf: str) -> list[Candle]:
+        """
+        Download historical data using yf.download() — does NOT call tkr.info,
+        which fails on newer yfinance due to extra API calls that get rate-limited.
+        """
         try:
             import yfinance as yf
             import pandas as pd
 
             interval = "1d" if tf == "1D" else "1wk"
             session  = getattr(self.data_client, '_session', None)
-            tkr      = yf.Ticker(ticker, session=session) if session else yf.Ticker(ticker)
 
-            df = await asyncio.to_thread(tkr.history, period="5y", interval=interval, auto_adjust=True)
+            df = await asyncio.to_thread(
+                yf.download,
+                ticker,
+                period="5y",
+                interval=interval,
+                auto_adjust=True,
+                progress=False,
+                session=session,
+                multi_level_index=False,
+            )
+
             if df is None or df.empty:
                 return []
 
+            # Flatten MultiIndex if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
@@ -193,12 +207,16 @@ class BacktestEngine:
                     c = float(row.get("Close", 0) or 0)
                     v = float(row.get("Volume",0) or 0)
                     if o > 0 and h > 0 and l > 0 and c > 0:
-                        raw.append(Candle(timestamp=dt, open=o, high=h, low=l, close=c, volume=v, vwap=0.0))
+                        raw.append(Candle(
+                            timestamp=dt, open=o, high=h,
+                            low=l, close=c, volume=v, vwap=0.0,
+                        ))
                 except Exception:
                     continue
             return raw
+
         except Exception as e:
-            logger.debug(f"_download_direct {ticker}/{tf}: {e}")
+            logger.warning(f"_download_direct {ticker}/{tf}: {e}")
             return []
 
     def _walk_forward(self, ticker: str, tf: str, candles: list[Candle]) -> list[BacktestTrade]:

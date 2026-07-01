@@ -123,9 +123,17 @@ class YFinanceClient:
         for attempt in range(MAX_RETRIES):
             await self._throttle()
             try:
-                tkr = yf.Ticker(ticker, session=self._session)
+                # Use yf.download() not tkr.history() — tkr.history() calls tkr.info
+                # internally on newer yfinance which triggers extra API calls that fail
                 df = await asyncio.to_thread(
-                    tkr.history, period=period, interval=interval, auto_adjust=True, prepost=False,
+                    yf.download,
+                    ticker,
+                    period=period,
+                    interval=interval,
+                    auto_adjust=True,
+                    progress=False,
+                    session=self._session,
+                    multi_level_index=False,
                 )
                 if df is None or df.empty:
                     return []
