@@ -173,17 +173,31 @@ var Backtest = (function() {
 
     var m = data.metrics || {};
 
-    // Partial results banner
+    // Status banner
     if (isPartial) {
       var banner = mk('div');
       banner.style.cssText = 'background:rgba(59,139,212,0.12);border:1px solid rgba(59,139,212,0.3);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:11px;color:#85B7EB;';
-      banner.textContent = 'Partial results — scan still running. Dashboard updates every 10s.';
+      banner.textContent = 'Partial results — scan still running. Updates every few seconds.';
       container.appendChild(banner);
     } else if (data.elapsed_sec) {
       var info = mk('div');
       info.style.cssText = 'background:rgba(0,214,143,0.08);border:1px solid rgba(0,214,143,0.2);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:11px;color:#00D68F;';
-      info.textContent = 'Completed in ' + data.elapsed_sec + 's — ' + (data.trade_count || 0) + ' total trades across ' + (data.tickers_scanned || 0) + ' tickers.';
+      info.textContent = 'Completed in ' + data.elapsed_sec + 's — ' + (data.trade_count || 0) + ' trades across ' + (data.tickers_scanned || 0) + ' tickers.';
       container.appendChild(info);
+    }
+
+    // If 0 trades, show diagnostic info
+    if (!data.trade_count || data.trade_count === 0) {
+      var noTrades = mk('div');
+      noTrades.style.cssText = 'background:#12151f;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:24px;text-align:center;color:var(--text2);font-size:12px;line-height:1.8;';
+      noTrades.innerHTML = '<div style="font-size:32px;margin-bottom:12px">📊</div>' +
+        '<div style="font-size:14px;font-weight:700;color:var(--text0);margin-bottom:8px">No Trades Found</div>' +
+        '<div>The scanner ran but found no setups during the selected period.</div>' +
+        '<div style="margin-top:8px;font-size:11px;">Try: <strong style="color:var(--text0)">1D + 1W timeframes</strong> with <strong style="color:var(--text0)">10–25 tickers</strong> for fastest results.<br>' +
+        'The 1H/4H backtest only covers ~730 days (Yahoo Finance limit).<br>' +
+        '1D/1W covers the full 5 years.</div>';
+      container.appendChild(noTrades);
+      return;
     }
 
     renderKPIs(container, m);
