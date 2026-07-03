@@ -85,7 +85,7 @@ SETUPS: dict[int, SetupConfig] = {
     ),
 }
 
-CHOCH_LOOKBACK: int = 20
+CHOCH_LOOKBACK: int = 50   # was 20 — too small, only looked at 26 bars, missed swing highs
 SWING_STRENGTH: int = 3
 MIN_SWING_SIZE_PCT: float = 0.02
 
