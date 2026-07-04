@@ -49,9 +49,11 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
     # WebSocket connection manager
     ws_manager = ConnectionManager()
 
-    # Backtest engine (singleton per server lifetime)
+    # Backtest engine + data downloader (singletons per server lifetime)
     from backtesting.engine import BacktestEngine
-    bt_engine = BacktestEngine(data_client=scanner.data_client)
+    from data.downloader import DataDownloader
+    bt_engine  = BacktestEngine(data_client=scanner.data_client)
+    downloader = DataDownloader(data_client=scanner.data_client)
 
     # Wire scanner and alerts → WebSocket broadcast
     async def on_watchlist_update(state: dict):
@@ -218,6 +220,34 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
             setup_id=setup_id, limit=limit,
         )
         return {"history": rows, "count": len(rows)}
+
+    # ── Backtesting ───────────────────────────────────────────────────────────
+    # ── Data Download (populate SQLite store for backtesting) ─────────────────
+    class DownloadBody(BaseModel):
+        tickers:     list[str] = []
+        timeframes:  list[str] = ["1D", "1W"]
+        max_tickers: int       = 50
+        force:       bool      = False
+
+    @app.post("/api/data/download")
+    async def start_download(body: DownloadBody):
+        if downloader._running:
+            return {"started": False, "message": "Download already running"}
+        from backtesting.universe import get_bt_universe
+        tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
+        tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
+        asyncio.create_task(downloader.download_all(tickers, tfs, force=body.force))
+        return {"started": True, "tickers": len(tickers), "timeframes": tfs}
+
+    @app.post("/api/data/cancel")
+    async def cancel_download():
+        downloader._running = False
+        downloader._message = "Cancelled"
+        return {"cancelled": True}
+
+    @app.get("/api/data/status")
+    async def download_status():
+        return downloader.get_status()
 
     # ── Backtesting ───────────────────────────────────────────────────────────
     class BacktestRunBody(BaseModel):

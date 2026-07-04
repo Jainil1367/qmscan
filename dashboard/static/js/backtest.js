@@ -27,30 +27,30 @@ var Backtest = (function () {
     if (!p) { alert('Backtest panel not found — please hard-refresh (Ctrl+Shift+R)'); return; }
     p.style.display = 'flex';
 
-    // Check existing state
-    Promise.all([
-      fetch('/api/data/status').then(function(r){ return r.json(); }),
-      fetch('/api/backtest/status').then(function(r){ return r.json(); }),
-    ]).then(function(results) {
-      var ds = results[0];
-      var bs = results[1];
-      updateDataStatus(ds);
+    // Check data store status
+    fetch('/api/data/status')
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d) { updateDataStatus(d); if (d.running) { setDlRunning(true); startDlPoll(); } })
+      .catch(function() { setDlMsg('Ready — click Download Data to begin.'); });
 
-      if (bs.status === 'running') {
-        setBtRunning(true);
-        setBtMsg(bs.message || 'Running...');
-        setBtProgress(bs.progress || 0);
-        startBtPoll();
-        if (bs.has_results) loadResults(true);
-      } else if (bs.has_results) {
-        setBtMsg(bs.message || 'Results from previous run loaded.');
-        loadResults(false);
-      } else {
-        setBtMsg('Ready. Download data first, then run backtest.');
-      }
-    }).catch(function() {
-      setBtMsg('Ready. Download data first, then run backtest.');
-    });
+    // Check backtest status
+    fetch('/api/backtest/status')
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d) {
+        setBtProgress(d.progress || 0);
+        if (d.status === 'running') {
+          setBtRunning(true);
+          setBtMsg(d.message || 'Running...');
+          startBtPoll();
+          if (d.has_results) loadResults(true);
+        } else if (d.has_results) {
+          setBtMsg(d.message || 'Previous results loaded.');
+          loadResults(false);
+        } else {
+          setBtMsg('Download data first (Step 1), then run backtest (Step 2).');
+        }
+      })
+      .catch(function() { setBtMsg('Download data first, then run backtest.'); });
   }
 
   function close() {
@@ -62,8 +62,8 @@ var Backtest = (function () {
 
   /* ── Data Download ─────────────────────────────────────────────────────── */
   function downloadData() {
-    var maxEl  = document.getElementById('bt-max-tickers');
-    var maxT   = maxEl ? (parseInt(maxEl.value) || 50) : 50;
+    var maxEl   = document.getElementById('bt-max-tickers');
+    var maxT    = maxEl ? (parseInt(maxEl.value) || 50) : 50;
     var tfBoxes = document.querySelectorAll('.bt-tf-check:checked');
     var tfs = [];
     for (var i = 0; i < tfBoxes.length; i++) tfs.push(tfBoxes[i].value);
@@ -77,22 +77,30 @@ var Backtest = (function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ max_tickers: maxT, timeframes: tfs, force: false }),
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (!r.ok) throw new Error('Server error ' + r.status + ' — endpoint not found');
+      return r.json();
+    })
     .then(function(d) {
       if (d.started) {
-        setDlMsg('Downloading ' + d.tickers + ' tickers × ' + (d.timeframes || []).join('/') + '...');
+        setDlMsg('Downloading ' + d.tickers + ' tickers [' + (d.timeframes || []).join(', ') + '] — this takes a few minutes...');
         startDlPoll();
       } else {
-        setDlMsg(d.message || 'Download already running');
+        setDlRunning(false);
+        setDlMsg(d.message || 'Already running');
+        startDlPoll();  // poll anyway to track progress
       }
     })
-    .catch(function(e) { setDlRunning(false); setDlMsg('Error: ' + e); });
+    .catch(function(e) {
+      setDlRunning(false);
+      setDlMsg('Error: ' + e.message + '. Try redeploying on Render.');
+    });
   }
 
   function startDlPoll() {
     stopDlPoll();
     _dlTimer = setInterval(pollDl, 3000);
-    pollDl();
+    setTimeout(pollDl, 800);  // first poll quickly
   }
 
   function stopDlPoll() {
@@ -101,15 +109,26 @@ var Backtest = (function () {
 
   function pollDl() {
     fetch('/api/data/status')
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error('status ' + r.status);
+        return r.json();
+      })
       .then(function(d) {
         updateDataStatus(d);
         if (!d.running) {
           stopDlPoll();
           setDlRunning(false);
+          if (d.message) setDlMsg(d.message);
+        } else {
+          setDlRunning(true);
+          if (d.message) setDlMsg(d.message);
         }
       })
-      .catch(function() {});
+      .catch(function(e) {
+        stopDlPoll();
+        setDlRunning(false);
+        setDlMsg('Cannot reach download status endpoint: ' + e.message);
+      });
   }
 
   function updateDataStatus(d) {
@@ -118,17 +137,8 @@ var Backtest = (function () {
     var total   = (d.store && d.store.total_entries) ? d.store.total_entries : 0;
     var sizeEl  = document.getElementById('bt-db-size');
     var countEl = document.getElementById('bt-db-count');
-    var msgEl   = document.getElementById('bt-dl-msg');
-
-    if (sizeEl) sizeEl.textContent = (d.db_size_mb || 0).toFixed(1) + ' MB';
+    if (sizeEl)  sizeEl.textContent  = (d.db_size_mb || 0).toFixed(1) + ' MB';
     if (countEl) countEl.textContent = total + ' series stored';
-    if (msgEl && d.message && !d.running) msgEl.textContent = d.message;
-
-    // Progress bar for download
-    if (d.running) {
-      setDlRunning(true);
-      setDlMsg(d.message || 'Downloading...');
-    }
   }
 
   function setDlRunning(on) {
