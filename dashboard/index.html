@@ -204,39 +204,59 @@
 <!-- ── Backtest Panel ─────────────────────────────────────────────────────── -->
 <div class="bt-panel" id="bt-panel" style="display:none">
   <div class="bt-panel-inner">
+
     <!-- Header -->
     <div class="bt-header">
       <div class="bt-title">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B8BD4" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Strategy Backtester
-        <span class="bt-subtitle">ICT Fibonacci Setups · NASDAQ-100 · Walk-Forward</span>
+        <span class="bt-subtitle">ICT Fibonacci · NASDAQ-100 · Walk-Forward · SQLite Store</span>
       </div>
       <button class="modal-close" onclick="Backtest.close()">X</button>
     </div>
 
-    <!-- Config bar -->
+    <!-- Step 1: Download Data -->
+    <div class="bt-config-bar" style="border-bottom:2px solid rgba(59,139,212,0.2)">
+      <div class="bt-config-group">
+        <label class="bt-label" style="color:#85B7EB">STEP 1 — Download &amp; Store Historical Data</label>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:8px;max-width:600px;line-height:1.6">
+          Downloads 5 years of 1D/1W data into a local SQLite database on the server.
+          Do this once — backtest reads from it instantly. 1H/4H covers last 730 days only.
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button id="bt-dl-btn" class="bt-run-btn" style="background:#1D4ED8;min-width:140px" onclick="Backtest.downloadData()">Download Data</button>
+          <span id="bt-dl-msg" class="bt-status-msg" style="color:var(--text2)">Click to check store or start download.</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-top:8px;font-size:10px;color:var(--text1)">
+          <span>DB Size: <strong style="color:var(--text0)" id="bt-db-size">—</strong></span>
+          <span>Stored: <strong style="color:var(--text0)" id="bt-db-count">—</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Run Backtest -->
     <div class="bt-config-bar">
       <div class="bt-config-group">
-        <label class="bt-label">Timeframes</label>
+        <label class="bt-label" style="color:#F59E0B">STEP 2 — Run Backtest (reads from local DB — instant)</label>
         <div class="bt-tf-checks">
-          <label><input type="checkbox" class="bt-tf-check" value="1H"> 1H <span style="color:var(--text2);font-size:9px">(730d max)</span></label>
-          <label><input type="checkbox" class="bt-tf-check" value="4H"> 4H <span style="color:var(--text2);font-size:9px">(730d max)</span></label>
-          <label><input type="checkbox" class="bt-tf-check" value="1D" checked> 1D <span style="color:var(--green);font-size:9px">(5y)</span></label>
-          <label><input type="checkbox" class="bt-tf-check" value="1W" checked> 1W <span style="color:var(--green);font-size:9px">(5y)</span></label>
+          <label><input type="checkbox" class="bt-tf-check" value="1H"> 1H</label>
+          <label><input type="checkbox" class="bt-tf-check" value="4H"> 4H</label>
+          <label><input type="checkbox" class="bt-tf-check" value="1D" checked> 1D</label>
+          <label><input type="checkbox" class="bt-tf-check" value="1W" checked> 1W</label>
         </div>
       </div>
       <div class="bt-config-group">
         <label class="bt-label">Max Tickers</label>
         <select id="bt-max-tickers" class="sort-btn" style="height:28px;padding:0 8px">
-          <option value="10" selected>10 tickers (fast ~1min)</option>
-          <option value="25">25 tickers (~3min)</option>
-          <option value="50">50 tickers (~6min)</option>
-          <option value="100">100 tickers (~12min)</option>
+          <option value="10" selected>10 tickers</option>
+          <option value="25">25 tickers</option>
+          <option value="50">50 tickers</option>
+          <option value="100">100 tickers (full NASDAQ-100)</option>
         </select>
       </div>
       <div class="bt-config-group">
-        <label class="bt-label">Custom Tickers <span style="color:var(--text2)">(comma separated, blank = NASDAQ-100)</span></label>
-        <input type="text" id="bt-tickers" class="filter-input" placeholder="e.g. AAPL,TSLA,NVDA" style="width:280px">
+        <label class="bt-label">Custom Tickers <span style="color:var(--text2)">(comma-separated, blank = NASDAQ-100)</span></label>
+        <input type="text" id="bt-tickers" class="filter-input" placeholder="e.g. AAPL,TSLA,NVDA" style="width:240px">
       </div>
       <div class="bt-config-group" style="align-self:flex-end;flex-direction:row;gap:8px">
         <button id="bt-run-btn" class="bt-run-btn" onclick="Backtest.run()">Run Backtest</button>
@@ -247,14 +267,14 @@
     <!-- Progress -->
     <div class="bt-progress-wrap">
       <div class="bt-progress-bar"><div id="bt-progress-fill" class="bt-progress-fill" style="width:0%"></div></div>
-      <div id="bt-status-msg" class="bt-status-msg">Ready. Configure settings and click Run Backtest.</div>
+      <div id="bt-status-msg" class="bt-status-msg">Download data first, then run backtest.</div>
     </div>
 
-    <!-- Results area -->
+    <!-- Results -->
     <div class="bt-body">
-      <div id="bt-eq-container"></div>
       <div id="bt-results"></div>
     </div>
+
   </div>
 </div>
 

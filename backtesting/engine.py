@@ -1,12 +1,13 @@
 """
-backtesting/engine.py — Walk-forward backtester.
+backtesting/engine.py — Walk-forward backtester using local SQLite store.
 
-Bugs fixed in this version:
-1. _fetch() was returning 1Y of data (from live cache) before _download_direct(5Y)
-   could run — now _download_direct is always called first for 1D/1W
-2. CONCURRENT=5 caused rate limiting — now downloads are sequential with delay
-3. Better error surfacing — errors now visible in status message
-4. 0-trade result now shows a clear message instead of blank panel
+Flow:
+  1. Reads candles from data/ohlcv.db (populated by DataDownloader)
+  2. Runs full walk-forward: detect_choch → analyze_fib_setup → detect_patterns
+  3. No network calls during backtest — instant reads from SQLite
+  4. Partial results flushed every FLUSH_EVERY tickers so UI updates live
+
+If a ticker has no stored data, it downloads on-demand (fallback).
 """
 from __future__ import annotations
 import asyncio
@@ -20,17 +21,18 @@ import pandas as pd
 
 from core.models import Candle
 from backtesting.metrics import BacktestTrade, compute_metrics
+from data.store import load_candles, is_fresh, store_candles, DB_PATH
 
 logger = logging.getLogger("qmscan.backtest")
 
-MAX_BARS_HELD    = 30
-MIN_BARS_WINDOW  = 60
-WINDOW_SIZE      = 120
-TRADE_COOLDOWN   = 5
-SLIDE_STEP       = 1     # check every bar (accurate)
-REQUEST_DELAY    = 1.2   # seconds between downloads (rate limit safety)
-MAX_RUNTIME_SEC  = 600   # 10 min hard cap
-FLUSH_EVERY      = 3     # show partial results every N tickers
+MAX_BARS_HELD   = 30
+MIN_BARS_WINDOW = 60
+WINDOW_SIZE     = 120
+TRADE_COOLDOWN  = 5
+SLIDE_STEP      = 1      # every bar (accurate)
+FLUSH_EVERY     = 5      # partial flush every N tickers
+MAX_RUNTIME_SEC = 600    # 10 min hard cap
+DOWNLOAD_DELAY  = 1.2    # only used for on-demand fallback downloads
 
 
 class BacktestEngine:
@@ -73,37 +75,34 @@ class BacktestEngine:
         self._status  = "idle"
         self._message = "Cancelled"
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── Core runner ───────────────────────────────────────────────────────────
     async def _run(self, tickers: list[str], timeframes: list[str], years: int):
-        self._running  = True
-        start_time     = time.monotonic()
+        self._running = True
+        start_time    = time.monotonic()
         all_trades: list[BacktestTrade] = []
-        total          = len(tickers)
+        total = len(tickers)
 
         try:
             for idx, ticker in enumerate(tickers):
-                elapsed = time.monotonic() - start_time
-                if elapsed > MAX_RUNTIME_SEC:
-                    self._message = f"Time limit — partial results: {idx}/{total} tickers, {len(all_trades)} trades"
+                if time.monotonic() - start_time > MAX_RUNTIME_SEC:
+                    self._message = f"Time limit reached — {idx}/{total} tickers done"
                     break
 
                 self._progress = min(90, int(idx / total * 90))
-                self._message  = f"Scanning {ticker} ({idx+1}/{total}) — {len(all_trades)} trades so far"
+                self._message  = f"Scanning {ticker} ({idx+1}/{total}) — {len(all_trades)} trades found"
 
-                # Scan each timeframe for this ticker sequentially
                 ticker_trades = await self._scan_ticker(ticker, timeframes)
                 all_trades.extend(ticker_trades)
 
-                # Flush partial results periodically
+                # Flush partial results so UI updates while running
                 if (idx + 1) % FLUSH_EVERY == 0 and all_trades:
                     await self._flush(all_trades, timeframes, start_time, partial=True)
-                    self._status = "running"  # keep running after flush
+                    self._status = "running"
 
-                # Rate limit delay between tickers (not between timeframes)
-                if idx < total - 1:
-                    await asyncio.sleep(REQUEST_DELAY)
+                # Small yield to let event loop breathe
+                await asyncio.sleep(0)
 
-            # Final flush
+            # Final metrics
             self._message  = f"Computing metrics for {len(all_trades)} trades..."
             self._progress = 96
             await self._flush(all_trades, timeframes, start_time, partial=False)
@@ -113,12 +112,15 @@ class BacktestEngine:
             self._status   = "done"
             if len(all_trades) == 0:
                 self._message = (
-                    f"Done in {elapsed:.0f}s — 0 trades found across {total} tickers. "
-                    f"This usually means no setups were active during the period. "
-                    f"Try different timeframes or a longer period."
+                    f"Done in {elapsed:.0f}s — 0 trades found. "
+                    f"Data may not be downloaded yet. "
+                    f"Click 'Download Data' first to populate the database."
                 )
             else:
-                self._message = f"Done in {elapsed:.0f}s — {len(all_trades)} trades across {total} tickers"
+                self._message = (
+                    f"Done in {elapsed:.0f}s — "
+                    f"{len(all_trades)} trades across {total} tickers"
+                )
 
         except asyncio.CancelledError:
             if all_trades:
@@ -143,98 +145,86 @@ class BacktestEngine:
         finally:
             self._running = False
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── Scan one ticker ───────────────────────────────────────────────────────
     async def _scan_ticker(self, ticker: str, timeframes: list[str]) -> list[BacktestTrade]:
         trades = []
         for tf in timeframes:
             try:
-                candles = await self._fetch(ticker, tf)
-                n = len(candles)
-                if n < MIN_BARS_WINDOW:
-                    logger.debug(f"  {ticker}/{tf}: only {n} bars, skip")
+                candles = await self._get_candles(ticker, tf)
+                if not candles or len(candles) < MIN_BARS_WINDOW:
+                    logger.debug(f"  {ticker}/{tf}: {len(candles) if candles else 0} bars (skip)")
                     continue
                 tf_trades = self._walk_forward(ticker, tf, candles)
+                logger.info(f"  {ticker}/{tf}: {len(candles)} bars → {len(tf_trades)} trades")
                 trades.extend(tf_trades)
-                logger.info(f"  {ticker}/{tf}: {n} bars → {len(tf_trades)} trades")
             except Exception as e:
-                logger.warning(f"  {ticker}/{tf} error: {type(e).__name__}: {e}")
+                logger.warning(f"  {ticker}/{tf} error: {e}")
         return trades
 
-    # ─────────────────────────────────────────────────────────────────────────
-    async def _fetch(self, ticker: str, tf: str) -> list[Candle]:
+    # ── Data access — SQLite first, download fallback ─────────────────────────
+    async def _get_candles(self, ticker: str, tf: str) -> list[Candle]:
         """
-        Always download max available history for backtest.
-        Do NOT use the live scanner's 1Y/60d cache — we need 5Y of data.
+        Read from SQLite store. If missing/stale, download on-demand.
+        After first download_all(), this is always instant.
         """
-        if tf in ("1D", "1W"):
-            # 1D/1W: download 5Y directly — no rate limit issues on Yahoo daily
-            return await self._download(ticker, "1d" if tf == "1D" else "1wk", "5y")
+        # Try SQLite first (instant)
+        stored = await asyncio.to_thread(load_candles, ticker, tf, 0, DB_PATH)
+        if stored and len(stored) >= MIN_BARS_WINDOW:
+            return stored
 
-        elif tf in ("1H", "4H"):
-            # Yahoo Finance hard limit: hourly data only available for last 730 days
-            raw = await self._download(ticker, "1h", "730d")
-            if tf == "4H" and raw:
-                raw = self.data_client._resample_4h(raw)
-            return raw
+        # Fallback: download on-demand (slow — only for missing tickers)
+        logger.warning(f"  {ticker}/{tf}: not in store, downloading on-demand...")
+        candles = await self._download_fallback(ticker, tf)
+        if candles:
+            await asyncio.to_thread(
+                store_candles, ticker, tf, candles,
+                "5y" if tf in ("1D","1W") else "730d", DB_PATH
+            )
+        return candles
 
-        return []
+    async def _download_fallback(self, ticker: str, tf: str) -> list[Candle]:
+        intervals = {"1H": "1h", "4H": "1h", "1D": "1d", "1W": "1wk"}
+        periods   = {"1H": "730d", "4H": "730d", "1D": "5y", "1W": "5y"}
+        interval  = intervals.get(tf, "1d")
+        period    = periods.get(tf, "5y")
+        session   = getattr(self.data_client, '_session', None)
 
-    async def _download(self, ticker: str, interval: str, period: str) -> list[Candle]:
-        """
-        Download using yf.download() which goes directly to price endpoint.
-        Does NOT call tkr.info (which fails on newer yfinance).
-        """
-        session = getattr(self.data_client, '_session', None)
         try:
             df = await asyncio.to_thread(
-                yf.download,
-                ticker,
-                period=period,
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                session=session,
-                multi_level_index=False,
+                yf.download, ticker,
+                period=period, interval=interval,
+                auto_adjust=True, progress=False,
+                session=session, multi_level_index=False,
             )
             if df is None or df.empty:
-                logger.debug(f"  {ticker}/{interval}: empty dataframe")
                 return []
 
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-            candles: list[Candle] = []
+            raw: list[Candle] = []
             for ts, row in df.iterrows():
                 try:
                     dt = ts.to_pydatetime()
                     if dt.tzinfo:
                         dt = dt.replace(tzinfo=None)
-                    o = float(row.get("Open",  0) or 0)
-                    h = float(row.get("High",  0) or 0)
-                    l = float(row.get("Low",   0) or 0)
-                    c = float(row.get("Close", 0) or 0)
-                    v = float(row.get("Volume",0) or 0)
+                    o,h,l,c,v = (float(row.get(k,0) or 0)
+                        for k in ["Open","High","Low","Close","Volume"])
                     if o > 0 and h > 0 and l > 0 and c > 0:
-                        candles.append(Candle(
-                            timestamp=dt, open=o, high=h,
-                            low=l, close=c, volume=v, vwap=0.0,
-                        ))
+                        raw.append(Candle(timestamp=dt, open=o, high=h,
+                                          low=l, close=c, volume=v, vwap=0.0))
                 except Exception:
                     continue
 
-            logger.debug(f"  {ticker}/{interval}/{period}: downloaded {len(candles)} candles")
-            return candles
+            if tf == "4H" and raw:
+                raw = self.data_client._resample_4h(raw)
+            return raw
 
         except Exception as e:
-            err = str(e)
-            if "429" in err or "rate" in err.lower() or "Too Many" in err:
-                logger.warning(f"  {ticker} rate limited — waiting 10s")
-                await asyncio.sleep(10)
-            else:
-                logger.warning(f"  {ticker}/{interval} download failed: {e}")
+            logger.warning(f"  {ticker}/{tf} fallback download failed: {e}")
             return []
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── Walk-forward simulation ───────────────────────────────────────────────
     def _walk_forward(self, ticker: str, tf: str,
                       candles: list[Candle]) -> list[BacktestTrade]:
         from detectors.choch import detect_choch
@@ -288,7 +278,7 @@ class BacktestEngine:
                 i += 1
                 continue
 
-            # ── Setup detection on window[:i] — no look-ahead ─────────────────
+            # ── Detection on window[:i] ───────────────────────────────────────
             window = candles[max(0, i - WINDOW_SIZE): i]
             try:
                 choch = detect_choch(window)
@@ -301,18 +291,15 @@ class BacktestEngine:
                     i += 1
                     continue
 
-                # Entry on next bar open — no look-ahead
                 if i + 1 >= n:
                     break
 
                 entry_bar   = candles[i + 1]
                 entry_price = entry_bar.open
 
-                # Validate trade geometry
-                if (entry_price <= 0
-                        or setup.stop_loss <= 0
+                if (entry_price <= 0 or setup.stop_loss <= 0
                         or entry_price <= setup.stop_loss
-                        or setup.target  <= entry_price):
+                        or setup.target <= entry_price):
                     i += 1
                     continue
 
@@ -344,7 +331,7 @@ class BacktestEngine:
                 i += 1
                 continue
 
-        # Close any open trade at end of data
+        # Close open trade at end of data
         if in_trade and active and candles:
             last  = candles[-1]
             risk  = active.entry_price - active.stop_loss
@@ -359,7 +346,7 @@ class BacktestEngine:
 
         return trades
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── Flush partial/final results ───────────────────────────────────────────
     async def _flush(self, trades: list[BacktestTrade], timeframes: list[str],
                      start_time: float, partial: bool):
         try:
