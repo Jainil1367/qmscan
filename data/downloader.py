@@ -164,56 +164,77 @@ class DataDownloader:
     async def _download_one(self, ticker: str, tf: str) -> list[Candle]:
         interval = INTERVALS.get(tf, "1d")
         period   = PERIODS.get(tf, "5y")
-        session  = getattr(self.data_client, '_session', None)
 
+        # Try multiple strategies — yfinance API changed significantly in v1.4+
+        raw = await self._try_download(ticker, interval, period)
+
+        # Resample 1H → 4H
+        if tf == "4H" and raw:
+            raw = self.data_client._resample_4h(raw)
+
+        return raw
+
+    async def _try_download(self, ticker: str, interval: str, period: str) -> list[Candle]:
+        """
+        Try yf.download() with our session. Falls back to Ticker.history()
+        if the first attempt fails. Handles yfinance crumb/cookie issues.
+        """
+        import pandas as pd
+        session = getattr(self.data_client, '_session', None)
+
+        # Strategy 1: yf.download() — fastest, no crumb needed for most tickers
         try:
             df = await asyncio.to_thread(
-                yf.download,
-                ticker,
-                period=period,
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                session=session,
-                multi_level_index=False,
+                yf.download, ticker,
+                period=period, interval=interval,
+                auto_adjust=True, progress=False,
+                session=session, multi_level_index=False,
+                repair=False,
             )
-            if df is None or df.empty:
-                return []
-
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-
-            raw: list[Candle] = []
-            for ts, row in df.iterrows():
-                try:
-                    dt = ts.to_pydatetime()
-                    if dt.tzinfo:
-                        dt = dt.replace(tzinfo=None)
-                    o = float(row.get("Open",  0) or 0)
-                    h = float(row.get("High",  0) or 0)
-                    l = float(row.get("Low",   0) or 0)
-                    c = float(row.get("Close", 0) or 0)
-                    v = float(row.get("Volume",0) or 0)
-                    if o > 0 and h > 0 and l > 0 and c > 0:
-                        raw.append(Candle(timestamp=dt, open=o, high=h,
-                                          low=l, close=c, volume=v, vwap=0.0))
-                except Exception:
-                    continue
-
-            # Resample 1H → 4H
-            if tf == "4H" and raw:
-                raw = self.data_client._resample_4h(raw)
-
-            return raw
-
+            if df is not None and not df.empty:
+                return self._df_to_candles(df)
         except Exception as e:
-            err = str(e)
-            if "429" in err or "rate" in err.lower() or "Too Many" in err:
-                logger.warning(f"  {ticker} rate limited, waiting 15s")
-                await asyncio.sleep(15)
-            else:
-                logger.debug(f"  {ticker}/{tf} failed: {e}")
-            return []
+            logger.debug(f"  {ticker} yf.download failed: {e}, trying Ticker.history")
+
+        # Strategy 2: Ticker.history() — handles crumb internally
+        try:
+            tkr = yf.Ticker(ticker, session=session) if session else yf.Ticker(ticker)
+            df = await asyncio.to_thread(
+                tkr.history, period=period, interval=interval,
+                auto_adjust=True, prepost=False,
+                raise_errors=False,
+            )
+            if df is not None and not df.empty:
+                return self._df_to_candles(df)
+        except Exception as e:
+            logger.debug(f"  {ticker} Ticker.history failed: {e}")
+
+        # Rate limit check
+        return []
+
+    def _df_to_candles(self, df) -> list[Candle]:
+        """Convert a yfinance DataFrame to a list of Candle objects."""
+        import pandas as pd
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        raw: list[Candle] = []
+        for ts, row in df.iterrows():
+            try:
+                dt = ts.to_pydatetime()
+                if dt.tzinfo:
+                    dt = dt.replace(tzinfo=None)
+                o = float(row.get("Open",  0) or 0)
+                h = float(row.get("High",  0) or 0)
+                l = float(row.get("Low",   0) or 0)
+                c = float(row.get("Close", 0) or 0)
+                v = float(row.get("Volume",0) or 0)
+                if o > 0 and h > 0 and l > 0 and c > 0:
+                    raw.append(Candle(timestamp=dt, open=o, high=h,
+                                      low=l, close=c, volume=v, vwap=0.0))
+            except Exception:
+                continue
+        return raw
 
     def get_stored(self, ticker: str, tf: str) -> list[Candle]:
         """Synchronous read from SQLite — instant."""

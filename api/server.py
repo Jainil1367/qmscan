@@ -231,13 +231,19 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
 
     @app.post("/api/data/download")
     async def start_download(body: DownloadBody):
-        if downloader._running:
-            return {"started": False, "message": "Download already running"}
-        from backtesting.universe import get_bt_universe
-        tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
-        tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
-        asyncio.create_task(downloader.download_all(tickers, tfs, force=body.force))
-        return {"started": True, "tickers": len(tickers), "timeframes": tfs}
+        try:
+            if downloader._running:
+                return {"started": False, "message": "Download already running",
+                        "status": downloader.get_status()}
+            from backtesting.universe import get_bt_universe
+            tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
+            tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
+            asyncio.create_task(downloader.download_all(tickers, tfs, force=body.force))
+            return {"started": True, "tickers": len(tickers), "timeframes": tfs,
+                    "message": f"Download started for {len(tickers)} tickers"}
+        except Exception as e:
+            import traceback
+            return {"started": False, "error": str(e), "traceback": traceback.format_exc()}
 
     @app.post("/api/data/cancel")
     async def cancel_download():
