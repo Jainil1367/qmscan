@@ -26,7 +26,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -223,27 +223,37 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
 
     # ── Backtesting ───────────────────────────────────────────────────────────
     # ── Data Download (populate SQLite store for backtesting) ─────────────────
-    class DownloadBody(BaseModel):
-        tickers:     list[str] = []
-        timeframes:  list[str] = ["1D", "1W"]
-        max_tickers: int       = 50
-        force:       bool      = False
-
     @app.post("/api/data/download")
-    async def start_download(body: DownloadBody):
+    async def start_download(request: Request):
         try:
+            # Parse body manually — avoids Pydantic 422 issues entirely
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+
             if downloader._running:
                 return {"started": False, "message": "Download already running",
                         "status": downloader.get_status()}
+
             from backtesting.universe import get_bt_universe
-            tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
-            tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
-            asyncio.create_task(downloader.download_all(tickers, tfs, force=body.force))
+            max_t    = int(body.get("max_tickers", 50))
+            raw_tfs  = body.get("timeframes", ["1D", "1W"])
+            raw_tick = body.get("tickers", [])
+            force    = bool(body.get("force", False))
+
+            tickers = raw_tick if raw_tick else get_bt_universe(max_t)
+            tfs     = [tf for tf in raw_tfs if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
+
+            asyncio.create_task(downloader.download_all(tickers, tfs, force=force))
             return {"started": True, "tickers": len(tickers), "timeframes": tfs,
-                    "message": f"Download started for {len(tickers)} tickers"}
+                    "message": f"Downloading {len(tickers)} tickers × {'/'.join(tfs)}"}
+
         except Exception as e:
             import traceback
-            return {"started": False, "error": str(e), "traceback": traceback.format_exc()}
+            logger.error(f"Download endpoint error: {e}", exc_info=True)
+            return {"started": False, "error": str(e),
+                    "detail": traceback.format_exc()[-500:]}
 
     @app.post("/api/data/cancel")
     async def cancel_download():
@@ -256,23 +266,27 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         return downloader.get_status()
 
     # ── Backtesting ───────────────────────────────────────────────────────────
-    class BacktestRunBody(BaseModel):
-        tickers: list[str] = []
-        timeframes: list[str] = ["1H", "4H", "1D", "1W"]
-        years: int = 5
-        max_tickers: int = 50
-
     @app.post("/api/backtest/run")
-    async def run_backtest(body: BacktestRunBody):
-        if bt_engine._running:
-            return {"started": False, "message": "Backtest already running"}
-        from backtesting.universe import get_bt_universe
-        tickers = body.tickers if body.tickers else get_bt_universe(body.max_tickers)
-        tfs = [tf for tf in body.timeframes if tf in ("1H", "4H", "1D", "1W")]
-        if not tfs:
-            tfs = ["1H", "4H", "1D", "1W"]
-        ok = bt_engine.start(tickers=tickers, timeframes=tfs, years=body.years)
-        return {"started": ok, "tickers": len(tickers), "timeframes": tfs}
+    async def run_backtest(request: Request):
+        try:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            if bt_engine._running:
+                return {"started": False, "message": "Backtest already running"}
+            from backtesting.universe import get_bt_universe
+            raw_tick = body.get("tickers", [])
+            max_t    = int(body.get("max_tickers", 50))
+            raw_tfs  = body.get("timeframes", ["1D", "1W"])
+            years    = int(body.get("years", 5))
+            tickers  = raw_tick if raw_tick else get_bt_universe(max_t)
+            tfs      = [tf for tf in raw_tfs if tf in ("1H", "4H", "1D", "1W")] or ["1D", "1W"]
+            ok = bt_engine.start(tickers=tickers, timeframes=tfs, years=years)
+            return {"started": ok, "tickers": len(tickers), "timeframes": tfs}
+        except Exception as e:
+            logger.error(f"Backtest run error: {e}", exc_info=True)
+            return {"started": False, "error": str(e)}
 
     @app.post("/api/backtest/cancel")
     async def cancel_backtest():

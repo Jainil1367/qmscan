@@ -78,22 +78,33 @@ var Backtest = (function () {
       body: JSON.stringify({ max_tickers: maxT, timeframes: tfs, force: false }),
     })
     .then(function(r) {
-      if (!r.ok) throw new Error('Server error ' + r.status + ' — endpoint not found');
-      return r.json();
+      return r.json().then(function(body) {
+        return { ok: r.ok, status: r.status, body: body };
+      });
     })
-    .then(function(d) {
+    .then(function(result) {
+      if (!result.ok) {
+        setDlRunning(false);
+        var detail = JSON.stringify(result.body).slice(0, 200);
+        setDlMsg('Server error ' + result.status + ': ' + detail);
+        return;
+      }
+      var d = result.body;
       if (d.started) {
-        setDlMsg('Downloading ' + d.tickers + ' tickers [' + (d.timeframes || []).join(', ') + '] — this takes a few minutes...');
+        setDlMsg(d.message || ('Downloading ' + d.tickers + ' tickers [' + (d.timeframes||[]).join(', ') + ']...'));
         startDlPoll();
+      } else if (d.error) {
+        setDlRunning(false);
+        setDlMsg('Error: ' + d.error);
       } else {
         setDlRunning(false);
-        setDlMsg(d.message || 'Already running');
-        startDlPoll();  // poll anyway to track progress
+        setDlMsg(d.message || 'Unexpected response');
+        startDlPoll();
       }
     })
     .catch(function(e) {
       setDlRunning(false);
-      setDlMsg('Error: ' + e.message + '. Try redeploying on Render.');
+      setDlMsg('Network error: ' + e.message);
     });
   }
 
