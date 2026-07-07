@@ -56,17 +56,19 @@ class DataDownloader:
         self._progress   = 0
         self._message    = "idle"
         self._running    = False
+        self._failed_tickers: list[str] = []
 
         init_db(db_path)
 
     # ── Status ────────────────────────────────────────────────────────────────
     def get_status(self) -> dict:
         return {
-            "running":    self._running,
-            "progress":   self._progress,
-            "message":    self._message,
-            "db_size_mb": round(db_size_mb(self.db_path), 2),
-            "store":      get_download_status(self.db_path),
+            "running":        self._running,
+            "progress":       self._progress,
+            "message":        self._message,
+            "db_size_mb":     round(db_size_mb(self.db_path), 2),
+            "failed_tickers": self._failed_tickers,
+            "store":          get_download_status(self.db_path),
         }
 
     # ── Main download ─────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ class DataDownloader:
         """
         self._running  = True
         self._progress = 0
+        self._failed_tickers = []
         total    = len(tickers) * len(timeframes)
         done     = 0
         skipped  = 0
@@ -108,10 +111,11 @@ class DataDownloader:
                                           period=PERIODS.get(tf, "5y"),
                                           path=self.db_path)
                         downloaded += 1
-                        logger.info(f"  {ticker}/{tf}: stored {n} bars")
+                        logger.info(f"  ✓ {ticker}/{tf}: stored {n} bars")
                     else:
                         failed += 1
-                        logger.warning(f"  {ticker}/{tf}: no data")
+                        self._failed_tickers.append(f"{ticker}/{tf}")
+                        logger.warning(f"  ✗ {ticker}/{tf}: no data returned (ticker may be delisted or rate-limited)")
 
                     done += 1
                     self._progress = int(done / total * 100)

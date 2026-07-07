@@ -144,12 +144,23 @@ var Backtest = (function () {
 
   function updateDataStatus(d) {
     if (!d) return;
-    var entries = (d.store && d.store.entries) ? d.store.entries : [];
     var total   = (d.store && d.store.total_entries) ? d.store.total_entries : 0;
     var sizeEl  = document.getElementById('bt-db-size');
     var countEl = document.getElementById('bt-db-count');
     if (sizeEl)  sizeEl.textContent  = (d.db_size_mb || 0).toFixed(1) + ' MB';
     if (countEl) countEl.textContent = total + ' series stored';
+
+    // Show failed tickers if any
+    var failed = d.failed_tickers || [];
+    var failEl = document.getElementById('bt-failed-tickers');
+    if (failEl) {
+      if (failed.length > 0) {
+        failEl.textContent = 'Failed (' + failed.length + '): ' + failed.join(', ');
+        failEl.style.display = 'block';
+      } else {
+        failEl.style.display = 'none';
+      }
+    }
   }
 
   function setDlRunning(on) {
