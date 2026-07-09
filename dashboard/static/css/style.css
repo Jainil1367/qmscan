@@ -323,10 +323,11 @@ html, body {
 /* ── Main Grid ───────────────────────────────────────────────────────────── */
 .main {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(680px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 10px;
   padding: 14px 20px;
   min-height: calc(100vh - 200px);
+  align-items: start;   /* don't stretch cards to fill row height */
 }
 
 /* ── Empty State ─────────────────────────────────────────────────────────── */
@@ -453,10 +454,11 @@ html, body {
 
 /* Right chart pane */
 .card-chart {
-  flex: 1;
-  min-height: 160px;
+  flex: 0 0 260px;      /* fixed width, never shrinks */
+  min-height: 220px;    /* consistent height always */
   position: relative;
   cursor: pointer;
+  background: var(--bg0);
 }
 .card-chart:hover::after {
   content: '⊕ Expand';
@@ -1343,9 +1345,6 @@ html, body {
   align-items: center;
   gap: 8px;
 }
-
-/* Chart pane background */
-.card-chart { background: var(--bg0); }
 
 /* Foot info (flags + patterns) */
 .card-foot-info { display: flex; flex-direction: column; gap: 5px; }

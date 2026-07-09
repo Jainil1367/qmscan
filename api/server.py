@@ -293,6 +293,27 @@ def create_app(scanner, alert_engine, trade_store) -> FastAPI:
         bt_engine.cancel()
         return {"cancelled": True}
 
+    @app.get("/api/backtest/debug")
+    async def backtest_debug():
+        """Shows DB path, candle counts per ticker, and last engine message."""
+        from data.store import DB_PATH, get_download_status, load_candles, db_size_mb
+        import os
+        status = get_download_status(DB_PATH)
+        # Sample a few tickers to verify reads work
+        samples = {}
+        for entry in status.get("entries", [])[:5]:
+            t, tf = entry["ticker"], entry["timeframe"]
+            c = load_candles(t, tf)
+            samples[f"{t}/{tf}"] = len(c)
+        return {
+            "db_path":     DB_PATH,
+            "db_exists":   os.path.exists(DB_PATH),
+            "db_size_mb":  round(db_size_mb(DB_PATH), 2),
+            "total_series": status.get("total_entries", 0),
+            "sample_reads": samples,
+            "bt_status":   bt_engine.get_status(),
+        }
+
     @app.get("/api/backtest/status")
     async def backtest_status():
         return bt_engine.get_status()

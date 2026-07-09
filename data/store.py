@@ -26,7 +26,15 @@ logger = logging.getLogger("qmscan.store")
 
 # Default location — persists across restarts on Render paid tier
 # On free tier it resets on redeploy, but survives restarts
-DB_PATH = os.getenv("OHLCV_DB_PATH", "data/ohlcv.db")
+import os as _os
+import pathlib as _pathlib
+
+# Use absolute path so it works regardless of working directory
+# On Render: /opt/render/project/src/data/ohlcv.db
+# Locally:   <project_root>/data/ohlcv.db
+_HERE    = _pathlib.Path(__file__).resolve().parent          # data/
+_DEFAULT = str(_HERE / "ohlcv.db")
+DB_PATH  = _os.getenv("OHLCV_DB_PATH", _DEFAULT)
 
 # How old cached data can be before we re-download (hours)
 STALE_HOURS = {

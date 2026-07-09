@@ -152,7 +152,7 @@ class BacktestEngine:
             try:
                 candles = await self._get_candles(ticker, tf)
                 if not candles or len(candles) < MIN_BARS_WINDOW:
-                    logger.debug(f"  {ticker}/{tf}: {len(candles) if candles else 0} bars (skip)")
+                    logger.debug(f"  {ticker}/{tf}: {len(candles) if candles else 0} bars — skip")
                     continue
                 tf_trades = self._walk_forward(ticker, tf, candles)
                 logger.info(f"  {ticker}/{tf}: {len(candles)} bars → {len(tf_trades)} trades")
@@ -163,23 +163,23 @@ class BacktestEngine:
 
     # ── Data access — SQLite first, download fallback ─────────────────────────
     async def _get_candles(self, ticker: str, tf: str) -> list[Candle]:
-        """
-        Read from SQLite store. If missing/stale, download on-demand.
-        After first download_all(), this is always instant.
-        """
-        # Try SQLite first (instant)
+        """Read from SQLite. Falls back to on-demand download if missing."""
         stored = await asyncio.to_thread(load_candles, ticker, tf, 0, DB_PATH)
         if stored and len(stored) >= MIN_BARS_WINDOW:
+            logger.debug(f"  {ticker}/{tf}: {len(stored)} bars from SQLite")
             return stored
 
-        # Fallback: download on-demand (slow — only for missing tickers)
-        logger.warning(f"  {ticker}/{tf}: not in store, downloading on-demand...")
+        # Not in DB — download on-demand and cache
+        logger.warning(f"  {ticker}/{tf}: not in SQLite (DB={DB_PATH}), downloading...")
         candles = await self._download_fallback(ticker, tf)
         if candles:
             await asyncio.to_thread(
                 store_candles, ticker, tf, candles,
-                "5y" if tf in ("1D","1W") else "730d", DB_PATH
+                "5y" if tf in ("1D", "1W") else "730d", DB_PATH
             )
+            logger.info(f"  {ticker}/{tf}: downloaded {len(candles)} bars and stored")
+        else:
+            logger.warning(f"  {ticker}/{tf}: download failed — 0 bars total")
         return candles
 
     async def _download_fallback(self, ticker: str, tf: str) -> list[Candle]:
