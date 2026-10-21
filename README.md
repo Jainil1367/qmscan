@@ -1,7 +1,7 @@
 # QMScan — ICT Fibonacci Watchlist System
 
 A production-ready stock scanner built on QM (CHoCH) patterns with all 4 ICT Fibonacci setups,
-live data via Polygon.io, real-time alerts, HTF confluence, OB detection, and a trade log.
+live data via yfinance, real-time alerts, HTF confluence, OB detection, and a trade log.
 
 ## Folder Structure
 
